@@ -9,7 +9,10 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Health Insurance Help Desk',
-  description: 'A secure platform for managing health insurance policies and support.',
+  description: 'Your trusted health insurance assistant',
+  icons: {
+    icon: '/icon.svg'
+  }
 }
 
 export default function RootLayout({

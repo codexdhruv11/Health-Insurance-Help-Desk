@@ -5,9 +5,9 @@ import { PlansSection } from "@/components/sections/PlansSection"
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col" suppressHydrationWarning>
       <MainNav />
-      <main className="flex-1">
+      <main className="flex-1" suppressHydrationWarning>
         <HeroSection />
         <FeaturesSection />
         <PlansSection />
