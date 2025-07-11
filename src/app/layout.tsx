@@ -22,7 +22,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <AuthProvider>
           <main className="min-h-screen bg-gray-50">
-            {children}
+          {children}
           </main>
           <Toaster />
         </AuthProvider>
