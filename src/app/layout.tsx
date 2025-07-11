@@ -18,12 +18,10 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
         <AuthProvider>
-          <main className="min-h-screen bg-gray-50">
           {children}
-          </main>
           <Toaster />
         </AuthProvider>
       </body>
