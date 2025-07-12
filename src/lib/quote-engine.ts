@@ -118,7 +118,7 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
     }) as PlanWithRelations[]
 
     const recommendedPlans = plans.map(plan => ({
-      planId: plan.id,
+          planId: plan.id,
       planName: plan.name,
       insurerName: plan.insurer.name,
       premium: Math.round(finalPremium * (plan.premiumMultiplier || 1)),
