@@ -3,6 +3,17 @@ import { QuoteEngine, QuoteInputSchema, type QuoteInput } from '@/lib/quote-engi
 import { prismaMock } from '../setup';
 import { createMockPlan } from '../setup';
 import { Decimal } from '@prisma/client/runtime/library';
+import { calculateQuote } from '@/lib/quote-engine'
+import { prisma } from '@/lib/prisma'
+
+// Mock Prisma client
+jest.mock('@/lib/prisma', () => ({
+  prisma: {
+    plan: {
+      findMany: jest.fn(),
+    },
+  },
+}))
 
 // Helper function to transform input to match QuoteInput type
 function transformInput(input: {
@@ -315,5 +326,158 @@ describe('QuoteEngine', () => {
       });
     });
   });
+
+  describe('Quote Engine', () => {
+    beforeEach(() => {
+      jest.clearAllMocks()
+      // Mock plan data
+      ;(prisma.plan.findMany as jest.Mock).mockResolvedValue([
+        {
+          id: 'plan-1',
+          name: 'Gold Health Individual',
+          insurerId: 'insurer-1',
+          planType: 'INDIVIDUAL',
+          coverageAmount: 500000,
+          premiumMultiplier: 1.2,
+          features: {
+            networkHospitals: 5000,
+            cashless: true,
+            preExistingCover: 2,
+          },
+          insurer: {
+            name: 'HealthGuard Insurance',
+          },
+          benefits: [
+            {
+              name: 'Hospitalization Cover',
+              description: 'Covers in-patient hospitalization expenses',
+              coverageAmount: 100,
+              type: 'PERCENTAGE',
+            },
+          ],
+        },
+      ])
+    })
+
+    it('should calculate quote for a healthy young individual', async () => {
+      const input = {
+        age: 25,
+        gender: 'MALE',
+        city: 'Pune',
+        hasMedicalConditions: false,
+        familySize: 1,
+        coverageAmount: 500000,
+      } as const
+
+      const result = await calculateQuote(input)
+
+      expect(result).toMatchObject({
+        basePremium: 5000, // 1% of coverage amount
+        riskFactor: 1.0, // Base risk for age <= 25
+        cityMultiplier: 1.1, // Tier 2 city
+        familyDiscount: 0, // No family discount for single person
+        coverageAmount: 500000,
+      })
+
+      expect(result.finalPremium).toBe(
+        Math.round(5000 * 1.0 * 1.1 * (1 - 0))
+      )
+
+      expect(result.recommendedPlans).toHaveLength(1)
+      expect(result.recommendedPlans[0]).toMatchObject({
+        planId: 'plan-1',
+        planName: 'Gold Health Individual',
+        insurerName: 'HealthGuard Insurance',
+      })
+    })
+
+    it('should calculate quote with medical conditions', async () => {
+      const input = {
+        age: 45,
+        gender: 'FEMALE',
+        city: 'Mumbai',
+        hasMedicalConditions: true,
+        medicalConditions: ['diabetes', 'hypertension'],
+        familySize: 1,
+        coverageAmount: 1000000,
+      } as const
+
+      const result = await calculateQuote(input)
+
+      expect(result).toMatchObject({
+        basePremium: 10000, // 1% of coverage amount
+        riskFactor: expect.any(Number), // Combined age risk and medical risk
+        cityMultiplier: 1.2, // Tier 1 city
+        familyDiscount: 0, // No family discount
+        coverageAmount: 1000000,
+      })
+
+      // Verify risk calculations
+      // Age 45 risk: 1.2
+      // Medical risk: 1.3 (diabetes) * 1.2 (hypertension) = 1.56
+      // Combined risk: 1.2 * 1.56 = 1.872
+      expect(result.riskFactor).toBeCloseTo(1.872, 2)
+
+      // Final premium calculation
+      expect(result.finalPremium).toBe(
+        Math.round(10000 * 1.872 * 1.2 * (1 - 0))
+      )
+    })
+
+    it('should apply family discount for larger families', async () => {
+      const input = {
+        age: 35,
+        gender: 'MALE',
+        city: 'Bangalore',
+        hasMedicalConditions: false,
+        familySize: 4,
+        coverageAmount: 1500000,
+      } as const
+
+      const result = await calculateQuote(input)
+
+      expect(result).toMatchObject({
+        basePremium: 15000, // 1% of coverage amount
+        riskFactor: 1.1, // Age risk for 35
+        cityMultiplier: 1.2, // Tier 1 city
+        familyDiscount: 0.15, // 15% discount for family size >= 4
+        coverageAmount: 1500000,
+      })
+
+      expect(result.finalPremium).toBe(
+        Math.round(15000 * 1.1 * 1.2 * (1 - 0.15))
+      )
+    })
+
+    it('should handle invalid city gracefully', async () => {
+      const input = {
+        age: 30,
+        gender: 'MALE',
+        city: 'Unknown City',
+        hasMedicalConditions: false,
+        familySize: 1,
+        coverageAmount: 500000,
+      } as const
+
+      const result = await calculateQuote(input)
+
+      expect(result.cityMultiplier).toBe(1.0) // Default to Tier 3 for unknown cities
+    })
+
+    it('should handle database errors gracefully', async () => {
+      (prisma.plan.findMany as jest.Mock).mockRejectedValue(new Error('Database error'))
+
+      const input = {
+        age: 30,
+        gender: 'MALE',
+        city: 'Mumbai',
+        hasMedicalConditions: false,
+        familySize: 1,
+        coverageAmount: 500000,
+      } as const
+
+      await expect(calculateQuote(input)).rejects.toThrow('Failed to calculate insurance quote')
+    })
+  })
 });
 
