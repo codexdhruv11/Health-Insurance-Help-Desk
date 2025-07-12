@@ -332,7 +332,7 @@ export default function CheckoutPage() {
                         {...register(`familyMembers.${index}.isNominee`)}
                         disabled={hasNominee && !field.isNominee}
                         onChange={(e) => {
-                          if (e.target.checked) {
+                          if (e.target.checked && watchFamilyMembers && watchFamilyMembers[index]) {
                             const member = watchFamilyMembers[index];
                             setValue('nominee', {
                               firstName: member.firstName,

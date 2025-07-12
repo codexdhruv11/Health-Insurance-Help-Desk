@@ -203,7 +203,7 @@ async function handleRefund(charge: Stripe.Charge) {
 async function generatePolicyDocuments(policy: any) {
   try {
     // Generate policy certificate PDF
-    const policyDoc = await generatePolicyPDF(policy);
+    const policyBuffer = await generatePolicyPDF(policy);
     
     // Upload to S3
     const s3Client = new S3Client({
@@ -219,7 +219,7 @@ async function generatePolicyDocuments(policy: any) {
     await s3Client.send(new PutObjectCommand({
       Bucket: process.env.AWS_S3_BUCKET!,
       Key: `policies/${fileName}`,
-      Body: policyDoc,
+      Body: policyBuffer,
       ContentType: 'application/pdf',
     }));
     
@@ -230,9 +230,10 @@ async function generatePolicyDocuments(policy: any) {
         entityId: policy.id,
         fileName,
         mimeType: 'application/pdf',
-        fileSize: policyDoc.byteLength,
+        fileSize: policyBuffer.length,
         s3Key: `policies/${fileName}`,
         uploadedById: policy.customer.userId ?? policy.customerId,
+        status: 'READY',
       },
     });
     

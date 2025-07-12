@@ -55,7 +55,8 @@ function isValidFileType(fileName: string, mimeType: string): boolean {
   const allowedExtensions = ALLOWED_FILE_TYPES[mimeType as keyof typeof ALLOWED_FILE_TYPES];
   if (!allowedExtensions) return false;
 
-  return allowedExtensions.includes(`.${extension}` as (typeof allowedExtensions)[number]);
+  // Use some() to check if extension matches any allowed extension
+  return allowedExtensions.some((ext: string) => ext === `.${extension}`);
 }
 
 // Validate file name for security

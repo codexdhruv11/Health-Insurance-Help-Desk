@@ -7,13 +7,18 @@ import { rateLimit } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
   try {
+    // Get user session for rate limiting
+    const session = await getServerSession(authOptions);
+    const rateLimitKey = session?.user?.id || req.headers.get('x-forwarded-for') || 'anonymous';
+    
     // Rate limiting
-    const isAllowed = rateLimit(req, {
+    const rateLimitInfo = await rateLimit(rateLimitKey, {
       maxRequests: 10,
-      windowMs: 60 * 1000 // 1 minute
+      windowMs: 60 * 1000, // 1 minute
+      prefix: 'quote:'
     });
     
-    if (!isAllowed) {
+    if (!rateLimitInfo.success) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
         { status: 429 }
@@ -26,8 +31,7 @@ export async function POST(req: NextRequest) {
     // Validate input
     const validatedInput = QuoteInputSchema.parse(body);
 
-    // Get user session if available
-    const session = await getServerSession(authOptions);
+    // Use session from rate limiting check
     const customerId = session?.user?.id;
 
     // Generate quotes

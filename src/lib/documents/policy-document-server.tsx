@@ -1,117 +1,98 @@
 import React from 'react';
+import { Document, Page, Text, View, StyleSheet, Image, Font } from '@react-pdf/renderer';
 import { format } from 'date-fns';
 
-interface PolicyDocumentProps {
-  policy: any;
-  Document: any;
-  Page: any;
-  Text: any;
-  View: any;
-  StyleSheet: any;
-  Image: any;
-  Font: any;
-}
+// Register fonts
+Font.register({
+  family: 'Roboto',
+  fonts: [
+    { src: 'https://fonts.gstatic.com/s/roboto/v27/KFOmCnqEu92Fr1Mu4mxP.ttf', fontWeight: 400 },
+    { src: 'https://fonts.gstatic.com/s/roboto/v27/KFOlCnqEu92Fr1MmWUlfBBc9.ttf', fontWeight: 700 },
+  ],
+});
 
-export const PolicyDocument: React.FC<PolicyDocumentProps> = ({ 
-  policy,
-  Document,
-  Page,
-  Text,
-  View,
-  StyleSheet,
-  Image,
-  Font
-}) => {
-  // Register fonts
-  Font.register({
-    family: 'Roboto',
-    fonts: [
-      { src: 'https://fonts.gstatic.com/s/roboto/v27/KFOmCnqEu92Fr1Mu4mxP.ttf', fontWeight: 400 },
-      { src: 'https://fonts.gstatic.com/s/roboto/v27/KFOlCnqEu92Fr1MmWUlfBBc9.ttf', fontWeight: 700 },
-    ],
-  });
+// Create styles
+const styles = StyleSheet.create({
+  page: {
+    flexDirection: 'column',
+    backgroundColor: '#ffffff',
+    padding: 40,
+    fontFamily: 'Roboto',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 40,
+  },
+  logo: {
+    width: 120,
+    height: 50,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 700,
+    marginBottom: 20,
+    color: '#1a365d',
+  },
+  section: {
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 700,
+    marginBottom: 10,
+    color: '#2c5282',
+  },
+  row: {
+    flexDirection: 'row',
+    marginBottom: 5,
+  },
+  label: {
+    width: 150,
+    fontWeight: 700,
+    color: '#4a5568',
+  },
+  value: {
+    flex: 1,
+    color: '#2d3748',
+  },
+  table: {
+    marginTop: 10,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e2e8f0',
+    paddingVertical: 8,
+  },
+  tableHeader: {
+    backgroundColor: '#f7fafc',
+    fontWeight: 700,
+  },
+  tableCell: {
+    flex: 1,
+    padding: 5,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 40,
+    right: 40,
+    textAlign: 'center',
+    color: '#718096',
+    fontSize: 10,
+  },
+  watermark: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%) rotate(-45deg)',
+    fontSize: 60,
+    color: 'rgba(0, 0, 0, 0.05)',
+  },
+});
 
-  // Create styles
-  const styles = StyleSheet.create({
-    page: {
-      flexDirection: 'column',
-      backgroundColor: '#ffffff',
-      padding: 40,
-      fontFamily: 'Roboto',
-    },
-    header: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      marginBottom: 40,
-    },
-    logo: {
-      width: 120,
-      height: 50,
-    },
-    title: {
-      fontSize: 24,
-      fontWeight: 700,
-      marginBottom: 20,
-      color: '#1a365d',
-    },
-    section: {
-      marginBottom: 20,
-    },
-    sectionTitle: {
-      fontSize: 16,
-      fontWeight: 700,
-      marginBottom: 10,
-      color: '#2c5282',
-    },
-    row: {
-      flexDirection: 'row',
-      marginBottom: 5,
-    },
-    label: {
-      width: 150,
-      fontWeight: 700,
-      color: '#4a5568',
-    },
-    value: {
-      flex: 1,
-      color: '#2d3748',
-    },
-    table: {
-      marginTop: 10,
-    },
-    tableRow: {
-      flexDirection: 'row',
-      borderBottomWidth: 1,
-      borderBottomColor: '#e2e8f0',
-      paddingVertical: 8,
-    },
-    tableHeader: {
-      backgroundColor: '#f7fafc',
-      fontWeight: 700,
-    },
-    tableCell: {
-      flex: 1,
-      padding: 5,
-    },
-    footer: {
-      position: 'absolute',
-      bottom: 40,
-      left: 40,
-      right: 40,
-      textAlign: 'center',
-      color: '#718096',
-      fontSize: 10,
-    },
-    watermark: {
-      position: 'absolute',
-      top: '50%',
-      left: '50%',
-      transform: 'translate(-50%, -50%) rotate(-45deg)',
-      fontSize: 60,
-      color: 'rgba(0, 0, 0, 0.05)',
-    },
-  });
-
+export function createPolicyDocument(policy: any) {
   const {
     policyNumber,
     effectiveDate,
@@ -205,4 +186,4 @@ export const PolicyDocument: React.FC<PolicyDocumentProps> = ({
       </Page>
     </Document>
   );
-};
+}

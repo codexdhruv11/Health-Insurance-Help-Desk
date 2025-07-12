@@ -102,7 +102,11 @@ export async function middleware(request: NextRequest) {
   try {
     // Apply rate limiting
     const ip = request.ip ?? '127.0.0.1';
-    const rateLimitInfo = await rateLimit(ip);
+    const rateLimitInfo = await rateLimit(ip, {
+      maxRequests: 100,
+      windowMs: 60 * 1000, // 1 minute
+      prefix: 'middleware:'
+    });
 
     if (!rateLimitInfo.success) {
       return getRateLimitResponse(rateLimitInfo);

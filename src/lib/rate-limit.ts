@@ -24,7 +24,8 @@ export async function rateLimit(
   const fullKey = `${config.prefix}${key}`;
   
   // Clean up expired entries
-  for (const [storedKey, value] of store.entries()) {
+  const entries = Array.from(store.entries());
+  for (const [storedKey, value] of entries) {
     if (value.resetTime <= now) {
       store.delete(storedKey);
     }
