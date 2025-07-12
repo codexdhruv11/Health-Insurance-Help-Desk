@@ -4,6 +4,7 @@ import { authenticator } from 'otplib'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import type { NextAuthOptions } from 'next-auth'
 
 // Validation schemas
 const loginSchema = z.object({
@@ -12,7 +13,7 @@ const loginSchema = z.object({
   mfaCode: z.string().optional(),
 })
 
-const handler = NextAuth({
+export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       name: 'credentials',
@@ -104,6 +105,8 @@ const handler = NextAuth({
     signIn: '/auth/signin',
     error: '/auth/error',
   },
-})
+}
+
+const handler = NextAuth(authOptions)
 
 export { handler as GET, handler as POST }
