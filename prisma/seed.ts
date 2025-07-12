@@ -152,13 +152,13 @@ async function main() {
         for (const benefit of benefits) {
           await prisma.planBenefit.upsert({
             where: { id: `${plan.id}_${benefit.name}` },
-            update: {},
-            create: {
+      update: {},
+      create: {
               ...benefit,
               planId: plan.id,
-            },
-          })
-        }
+      },
+    })
+  }
       }
     }
 
