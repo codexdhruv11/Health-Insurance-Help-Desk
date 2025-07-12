@@ -1,52 +1,51 @@
+'use client'
+
 import Link from 'next/link'
+import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
 import { UserNav } from './UserNav'
 
 export function MainNav() {
+  const { data: session, status } = useSession()
+
   return (
-    <nav className="bg-white shadow-sm">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 justify-between items-center">
-          <div className="flex items-center">
-            <Link href="/" className="flex items-center">
-              <span className="text-2xl font-bold text-blue-600">HIHD</span>
-            </Link>
-          </div>
-          <div className="hidden md:flex md:items-center md:space-x-6">
-            <Link href="/plans">
-              <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
-                Browse Plans
-              </Button>
-            </Link>
-            <Link href="/compare">
-              <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
-                Compare Plans
-              </Button>
-            </Link>
-            <Link href="/quote">
-              <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
-                Get Quote
-              </Button>
-            </Link>
-            <Link href="/hospitals">
-              <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
-                Hospitals
-              </Button>
-            </Link>
-            <Link href="/customer/dashboard">
-              <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
-                Dashboard
-              </Button>
-            </Link>
-            <UserNav />
-          </div>
-          <div className="flex md:hidden">
-            <Button variant="ghost" className="text-gray-600">
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-            </Button>
-          </div>
+    <nav className="border-b">
+      <div className="container flex h-16 items-center px-4">
+        <Link href="/" className="flex items-center space-x-2">
+          <span className="font-bold">Health Insurance Help Desk</span>
+        </Link>
+
+        {/* Main Navigation Links */}
+        <div className="mx-6 flex items-center space-x-4 lg:space-x-6">
+          <Link href="/dashboard" className="text-sm font-medium transition-colors hover:text-primary">
+            Dashboard
+          </Link>
+          <Link href="/plans" className="text-sm font-medium transition-colors hover:text-primary">
+            Plans
+          </Link>
+          <Link href="/hospitals" className="text-sm font-medium transition-colors hover:text-primary">
+            Hospitals
+          </Link>
+          <Link href="/quote" className="text-sm font-medium transition-colors hover:text-primary">
+            Get Quote
+          </Link>
+        </div>
+
+        <div className="ml-auto flex items-center space-x-4">
+          {status === 'loading' ? (
+            <div className="h-8 w-8 animate-pulse rounded-full bg-gray-200" />
+          ) : session ? (
+            <UserNav user={session.user} />
+          ) : (
+            <>
+              <Link href="/auth/signin">
+                <Button variant="ghost">Sign In</Button>
+              </Link>
+              <Link href="/auth/register">
+                <Button>Sign Up</Button>
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </nav>

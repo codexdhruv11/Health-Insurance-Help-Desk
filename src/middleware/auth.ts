@@ -1,47 +1,53 @@
-import { withAuth } from 'next-auth/middleware'
+import { getToken } from 'next-auth/jwt'
 import { NextResponse } from 'next/server'
-import { UserRole } from '@prisma/client'
+import type { NextRequest } from 'next/server'
 
-export default withAuth(
-  function middleware(req) {
-    const token = req.nextauth.token
-    const path = req.nextUrl.pathname
+// Routes that don't require authentication
+const PUBLIC_ROUTES = [
+  '/dashboard',
+  '/plans',
+  '/quote',
+  '/hospitals',
+  '/compare'
+]
 
-    // Public paths
-    if (path === '/' || path.startsWith('/auth')) {
-      return NextResponse.next()
-    }
+// Routes that require specific roles
+const ROLE_ROUTES = {
+  '/customer': ['CUSTOMER'],
+  '/agent': ['AGENT'],
+  '/admin': ['ADMIN'],
+  '/manager': ['MANAGER']
+}
 
-    // No token, redirect to sign in
-    if (!token) {
-      return NextResponse.redirect(new URL('/auth/signin', req.url))
-    }
+export async function middleware(request: NextRequest) {
+  const token = await getToken({ req: request })
+  const path = request.nextUrl.pathname
 
-    // Role-based access
-    if (path.startsWith('/customer') && token.role !== UserRole.CUSTOMER) {
-      return NextResponse.redirect(new URL('/', req.url))
-    }
-
-    if (path.startsWith('/agent') && token.role !== UserRole.AGENT) {
-      return NextResponse.redirect(new URL('/', req.url))
-    }
-
-    if (path.startsWith('/admin') && token.role !== UserRole.ADMIN) {
-      return NextResponse.redirect(new URL('/', req.url))
-    }
-
-    if (path.startsWith('/manager') && token.role !== UserRole.MANAGER) {
-      return NextResponse.redirect(new URL('/', req.url))
-    }
-
+  // Allow access to public routes without authentication
+  if (PUBLIC_ROUTES.some(route => path.startsWith(route))) {
     return NextResponse.next()
-  },
-  {
-    callbacks: {
-      authorized: ({ token }) => !!token,
-    },
   }
-)
+
+  // Check if user is authenticated
+  if (!token) {
+    const signInUrl = new URL('/auth/signin', request.url)
+    signInUrl.searchParams.set('callbackUrl', request.url)
+    return NextResponse.redirect(signInUrl)
+  }
+
+  // Check role-based access for protected routes
+  for (const [route, roles] of Object.entries(ROLE_ROUTES)) {
+    if (path.startsWith(route)) {
+      const userRole = token.role as string
+      if (!roles.includes(userRole)) {
+        // Redirect to appropriate dashboard based on role
+        return NextResponse.redirect(new URL(`/${userRole.toLowerCase()}/dashboard`, request.url))
+      }
+    }
+  }
+
+  return NextResponse.next()
+}
 
 export const config = {
   matcher: [

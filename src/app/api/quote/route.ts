@@ -1,159 +1,94 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from '@/lib/auth';
-import prisma from '@/lib/prisma';
-import QuoteEngine, { QuoteInputSchema } from '@/lib/quote-engine';
-import { rateLimit } from '@/lib/rate-limit';
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { rateLimit } from '@/lib/rate-limit'
+import { calculateQuote } from '@/lib/quote-engine'
+import { prisma } from '@/lib/prisma'
+import { z } from 'zod'
 
-export async function POST(req: NextRequest) {
+// Quote request schema
+const quoteSchema = z.object({
+  age: z.number().min(0).max(120),
+  gender: z.enum(['MALE', 'FEMALE', 'OTHER']),
+  city: z.string().min(1),
+  hasMedicalConditions: z.boolean(),
+  medicalConditions: z.array(z.string()).optional(),
+  familySize: z.number().min(1).max(10),
+  coverageAmount: z.number().min(100000),
+})
+
+export async function POST(request: NextRequest) {
   try {
-    // Get user session for rate limiting
-    const session = await getServerSession(authOptions);
-    const rateLimitKey = session?.user?.id || req.headers.get('x-forwarded-for') || 'anonymous';
+    // Rate limiting based on IP for anonymous users, user ID for authenticated
+    const session = await getServerSession()
+    const identifier = session?.user?.id || request.ip || 'anonymous'
+    const { success } = await rateLimit(identifier)
     
-    // Rate limiting
-    const rateLimitInfo = await rateLimit(rateLimitKey, {
-      maxRequests: 10,
-      windowMs: 60 * 1000, // 1 minute
-      prefix: 'quote:'
-    });
-    
-    if (!rateLimitInfo.success) {
+    if (!success) {
       return NextResponse.json(
         { error: 'Too many requests. Please try again later.' },
         { status: 429 }
-      );
+      )
     }
 
-    // Parse request body
-    const body = await req.json();
+    // Parse and validate request body
+    const body = await request.json()
+    const validatedData = quoteSchema.parse(body)
 
-    // Validate input
-    const validatedInput = QuoteInputSchema.parse(body);
+    // Calculate quote using the quote engine
+    const quote = await calculateQuote(validatedData)
 
-    // Use session from rate limiting check
-    const customerId = session?.user?.id;
-
-    // Generate quotes
-    const quoteItems = await QuoteEngine.generateQuotes(validatedInput);
-
-    // Store quote in database if user is logged in
-    let quote: any = null;
-    if (customerId) {
-      quote = await prisma.quote.create({
+    // For authenticated users, store the quote in the database
+    if (session?.user) {
+      await prisma.quote.create({
         data: {
-          customerId,
-          age: validatedInput.age,
-          city: validatedInput.city,
-          coverageAmount: validatedInput.coverageAmount,
-          familySize: validatedInput.familySize,
-          medicalHistory: validatedInput.medicalHistory || {},
-          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days expiry
-          quoteItems: {
-            create: quoteItems.map(item => ({
-              planId: item.planId,
-              premium: item.premium,
-              discounts: item.discounts,
-              finalPremium: item.finalPremium,
-            })),
-          },
+          ...quote,
+          userId: session.user.id,
+          status: 'PENDING',
+          quoteData: validatedData,
         },
-        include: {
-          quoteItems: {
-            include: {
-              plan: {
-                include: {
-                  insurer: true,
-                  benefits: true,
-                },
-              },
-            },
-          },
-        },
-      });
+      })
     }
 
-    // Return quotes with plan details
-    const response = {
-      quoteId: quote?.id,
-      expiresAt: quote?.expiresAt,
-      quotes: quoteItems.map(item => ({
-        ...item,
-        plan: quote?.quoteItems.find((qi: any) => qi.planId === item.planId)?.plan,
-      })),
-    };
-
-    return NextResponse.json(response);
-  } catch (error: any) {
-    console.error('Quote generation error:', error);
-
-    if (error.name === 'ZodError') {
+    return NextResponse.json(quote)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Invalid input data', details: error.errors },
+        { error: 'Invalid request data', details: error.errors },
         { status: 400 }
-      );
+      )
     }
 
+    console.error('Quote generation error:', error)
     return NextResponse.json(
-      { error: 'Failed to generate quotes' },
+      { error: 'Failed to generate quote' },
       { status: 500 }
-    );
+    )
   }
 }
 
-// Get quote by ID
-export async function GET(req: NextRequest) {
-  try {
-    const session = await getServerSession(authOptions);
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Authentication required' },
-        { status: 401 }
-      );
-    }
+export async function GET(request: NextRequest) {
+  const session = await getServerSession()
 
-    const url = new URL(req.url);
-    const quoteId = url.searchParams.get('id');
-
-    if (!quoteId) {
-      return NextResponse.json(
-        { error: 'Quote ID is required' },
-        { status: 400 }
-      );
-    }
-
-    const quote = await prisma.quote.findUnique({
-      where: {
-        id: quoteId,
-        customerId: session.user.id,
-      },
-      include: {
-        quoteItems: {
-          include: {
-            plan: {
-              include: {
-                insurer: true,
-                benefits: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!quote) {
-      return NextResponse.json(
-        { error: 'Quote not found' },
-        { status: 404 }
-      );
-    }
-
-    return NextResponse.json(quote);
-  } catch (error) {
-    console.error('Quote retrieval error:', error);
+  // Only authenticated users can view their quotes
+  if (!session?.user) {
     return NextResponse.json(
-      { error: 'Failed to retrieve quote' },
+      { error: 'Authentication required' },
+      { status: 401 }
+    )
+  }
+
+  try {
+    const quotes = await prisma.quote.findMany({
+      where: { userId: session.user.id },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    return NextResponse.json(quotes)
+  } catch (error) {
+    console.error('Error fetching quotes:', error)
+    return NextResponse.json(
+      { error: 'Failed to fetch quotes' },
       { status: 500 }
-    );
+    )
   }
 } 

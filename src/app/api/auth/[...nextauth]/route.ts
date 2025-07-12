@@ -1,44 +1,18 @@
-import NextAuth, { type NextAuthOptions } from 'next-auth'
-import CredentialsProvider from 'next-auth/providers/credentials'
-import { PrismaAdapter } from '@next-auth/prisma-adapter'
-import { prisma } from '../../../../lib/prisma'
-import bcrypt from 'bcryptjs'
-import { z } from 'zod'
-import { UserRole } from '@prisma/client'
+import NextAuth from 'next-auth'
+import { compare } from 'bcryptjs'
 import { authenticator } from 'otplib'
+import CredentialsProvider from 'next-auth/providers/credentials'
+import { prisma } from '@/lib/prisma'
+import { z } from 'zod'
 
-// Extend NextAuth types
-declare module 'next-auth' {
-  interface User {
-    role: UserRole
-    name?: string
-  }
-  
-  interface Session {
-    user: {
-      id: string
-      email: string
-      role: UserRole
-      name?: string
-    }
-  }
-}
-
-declare module 'next-auth/jwt' {
-  interface JWT {
-    role: UserRole
-    name?: string
-  }
-}
-
+// Validation schemas
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   mfaCode: z.string().optional(),
 })
 
-export const authOptions: NextAuthOptions = {
-  adapter: PrismaAdapter(prisma),
+const handler = NextAuth({
   providers: [
     CredentialsProvider({
       name: 'credentials',
@@ -48,6 +22,10 @@ export const authOptions: NextAuthOptions = {
         mfaCode: { label: 'MFA Code', type: 'text' },
       },
       async authorize(credentials) {
+        if (!credentials?.email || !credentials?.password) {
+          throw new Error('Please enter your email and password')
+        }
+
         try {
           // Validate input
           const { email, password, mfaCode } = loginSchema.parse(credentials)
@@ -55,99 +33,77 @@ export const authOptions: NextAuthOptions = {
           // Find user
           const user = await prisma.user.findUnique({
             where: { email },
-            include: {
-              customer: true,
-              supportAgent: true,
-            },
           })
 
           if (!user || !user.passwordHash) {
-            return null
+            throw new Error('Invalid email or password')
           }
 
           // Verify password
-          const isValid = await bcrypt.compare(password, user.passwordHash)
+          const isValid = await compare(password, user.passwordHash)
           if (!isValid) {
-            return null
+            throw new Error('Invalid email or password')
           }
 
           // Check MFA if enabled
           if (user.mfaEnabled) {
             if (!mfaCode) {
-              throw new Error('MFA code required')
+              throw new Error('MFA_REQUIRED')
             }
-            
-            // Verify TOTP code
+
             if (!user.mfaSecret) {
-              throw new Error('MFA secret not configured')
+              throw new Error('MFA not properly configured')
             }
-            
-            authenticator.options = { window: 1 }; // Allow 1 step tolerance
+
             const isValidMFA = authenticator.verify({
               token: mfaCode,
               secret: user.mfaSecret,
             })
-            
+
             if (!isValidMFA) {
               throw new Error('Invalid MFA code')
             }
           }
 
+          // Return user data
           return {
             id: user.id,
             email: user.email,
             role: user.role,
-            name: user.customer?.firstName || user.supportAgent?.firstName || undefined,
           }
         } catch (error) {
-          console.error('Auth error:', error)
-          return null
+          if (error instanceof z.ZodError) {
+            throw new Error('Invalid input data')
+          }
+          throw error
         }
       },
     }),
   ],
   session: {
     strategy: 'jwt',
-    maxAge: 24 * 60 * 60, // 24 hours instead of 30 days
-  },
-  cookies: {
-    sessionToken: {
-      name: `__Secure-next-auth.session-token`,
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: process.env.NODE_ENV === 'production',
-      },
-    },
+    maxAge: 30 * 24 * 60 * 60, // 30 days
   },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        // Only store essential data in the token
         token.role = user.role
-        token.name = user.name
+        token.id = user.id
       }
       return token
     },
     async session({ session, token }) {
-      // Only include essential user data in the session
-      return {
-        ...session,
-        user: {
-          id: token.sub!,
-          email: session.user.email,
-          role: token.role as UserRole,
-          name: token.name as string | undefined,
-        },
+      if (token && session.user) {
+        session.user.role = token.role
+        session.user.id = token.id
       }
+      return session
     },
   },
   pages: {
     signIn: '/auth/signin',
     error: '/auth/error',
   },
-}
+})
 
-const handler = NextAuth(authOptions)
 export { handler as GET, handler as POST }
