@@ -1,169 +1,121 @@
-import '@testing-library/jest-dom';
-import { TextEncoder, TextDecoder } from 'util';
-import { vi } from 'vitest';
-import { PrismaClient } from '@prisma/client';
-import { mockDeep, mockReset } from 'vitest-mock-extended';
-import { Redis } from 'ioredis';
-import { S3Client } from '@aws-sdk/client-s3';
-import Stripe from 'stripe';
+import '@testing-library/jest-dom'
+import { TextEncoder, TextDecoder } from 'util'
+import { server } from './server'
 
-// Mock TextEncoder/TextDecoder for Node.js environment
-global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder as any;
+// Mock Next.js router
+jest.mock('next/router', () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+    query: {},
+    pathname: '/',
+    asPath: '/',
+  }),
+}))
 
-// Mock fetch
-global.fetch = vi.fn();
+// Mock Next.js navigation
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({
+    push: jest.fn(),
+    replace: jest.fn(),
+    prefetch: jest.fn(),
+    back: jest.fn(),
+    forward: jest.fn(),
+  }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}))
+
+// Mock Next Auth
+jest.mock('next-auth/react', () => ({
+  useSession: jest.fn(() => ({
+    data: null,
+    status: 'unauthenticated',
+  })),
+  signIn: jest.fn(),
+  signOut: jest.fn(),
+  getSession: jest.fn(),
+}))
 
 // Mock Prisma
-const prismaMock = mockDeep<PrismaClient>();
-vi.mock('@/lib/prisma', () => ({
-  prisma: prismaMock,
-  default: prismaMock,
-}));
-
-// Mock Redis
-const redisMock = mockDeep<Redis>();
-vi.mock('ioredis', () => ({
-  default: vi.fn(() => redisMock),
-}));
-
-// Mock AWS S3
-const s3Mock = mockDeep<S3Client>();
-vi.mock('@aws-sdk/client-s3', () => ({
-  S3Client: vi.fn(() => s3Mock),
-  PutObjectCommand: vi.fn(),
-  GetObjectCommand: vi.fn(),
-  DeleteObjectCommand: vi.fn(),
-}));
-
-// Mock Stripe
-const stripeMock = mockDeep<Stripe>();
-vi.mock('stripe', () => ({
-  default: vi.fn(() => stripeMock),
-}));
-
-// Mock NextAuth
-vi.mock('next-auth', () => ({
-  getServerSession: vi.fn(() => ({
+jest.mock('@/lib/prisma', () => ({
+  prisma: {
     user: {
-      id: 'test-user-id',
-      email: 'test@example.com',
-      role: 'CUSTOMER',
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+      delete: jest.fn(),
     },
-  })),
-}));
+    quote: {
+      create: jest.fn(),
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+    },
+    plan: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    hospital: {
+      findMany: jest.fn(),
+      findUnique: jest.fn(),
+    },
+    $transaction: jest.fn((callback) => callback()),
+  },
+}))
 
 // Mock environment variables
-process.env = {
-  ...process.env,
-  DATABASE_URL: 'postgresql://test:test@localhost:5432/test_db',
-  REDIS_URL: 'redis://localhost:6379',
-  AWS_REGION: 'us-east-1',
-  AWS_ACCESS_KEY_ID: 'test-key-id',
-  AWS_SECRET_ACCESS_KEY: 'test-secret-key',
-  AWS_S3_BUCKET: 'test-bucket',
-  NEXTAUTH_URL: 'http://localhost:3000',
-  NEXTAUTH_SECRET: 'test-secret',
-  STRIPE_SECRET_KEY: 'sk_test_key',
-  STRIPE_PUBLISHABLE_KEY: 'pk_test_key',
-  STRIPE_WEBHOOK_SECRET: 'whsec_test',
-  WEBHOOK_SECRET: 'test-webhook-secret',
-};
+process.env.NEXTAUTH_URL = 'http://localhost:3000'
+process.env.NEXTAUTH_SECRET = 'test-secret'
+process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test'
+process.env.STRIPE_SECRET_KEY = 'test_stripe_secret'
+process.env.STRIPE_WEBHOOK_SECRET = 'test_webhook_secret'
 
-// Test utilities
-export const createMockUser = (overrides = {}) => ({
-  id: 'test-user-id',
-  email: 'test@example.com',
-  role: 'CUSTOMER',
-  mfaEnabled: false,
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  ...overrides,
-});
+// Polyfill TextEncoder/TextDecoder for Node.js environment
+global.TextEncoder = TextEncoder
+global.TextDecoder = TextDecoder as any
 
-export const createMockCustomer = (overrides = {}) => ({
-  id: 'test-customer-id',
-  userId: 'test-user-id',
-  firstName: 'Test',
-  lastName: 'User',
-  dateOfBirth: new Date('1990-01-01'),
-  phone: '+1234567890',
-  address: {
-    line1: '123 Test St',
-    city: 'Test City',
-    state: 'Test State',
-    pincode: '123456',
-  },
-  createdAt: new Date(),
-  ...overrides,
-});
+// Setup MSW
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
+afterEach(() => server.resetHandlers())
+afterAll(() => server.close())
 
-export const createMockPolicy = (overrides = {}) => ({
-  id: 'test-policy-id',
-  customerId: 'test-customer-id',
-  planId: 'test-plan-id',
-  policyNumber: 'POL123456',
-  status: 'ACTIVE',
-  effectiveDate: new Date(),
-  expirationDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-  premiumAmount: 10000,
-  deductible: 1000,
-  coverageDetails: {},
-  createdAt: new Date(),
-  ...overrides,
-});
+// Clean up after each test
+afterEach(() => {
+  jest.clearAllMocks()
+})
 
-export const createMockPlan = (overrides = {}) => ({
-  id: 'test-plan-id',
-  insurerId: 'test-insurer-id',
-  name: 'Test Plan',
-  description: 'Test plan description',
-  planType: 'INDIVIDUAL',
-  coverageAmount: 500000,
-  features: ['Feature 1', 'Feature 2'],
-  benefitsDetail: {},
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  ...overrides,
-});
+// Mock window.matchMedia
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: jest.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: jest.fn(),
+    removeListener: jest.fn(),
+    addEventListener: jest.fn(),
+    removeEventListener: jest.fn(),
+    dispatchEvent: jest.fn(),
+  })),
+})
 
-export const createMockDocument = (overrides = {}) => ({
-  id: 'test-document-id',
-  entityType: 'POLICY',
-  entityId: 'test-policy-id',
-  fileName: 'test.pdf',
-  fileSize: 1024,
-  mimeType: 'application/pdf',
-  s3Key: 'test/test.pdf',
-  uploadedById: 'test-user-id',
-  status: 'PENDING',
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  ...overrides,
-});
+// Mock IntersectionObserver
+const mockIntersectionObserver = jest.fn()
+mockIntersectionObserver.mockReturnValue({
+  observe: () => null,
+  unobserve: () => null,
+  disconnect: () => null,
+})
+window.IntersectionObserver = mockIntersectionObserver
 
-export const createMockQuote = (overrides = {}) => ({
-  id: 'test-quote-id',
-  customerId: 'test-customer-id',
-  planId: 'test-plan-id',
-  basePremium: 10000,
-  finalPremium: 12000,
-  discounts: {},
-  riskFactors: [],
-  createdAt: new Date(),
-  ...overrides,
-});
-
-// Reset all mocks before each test
-beforeEach(() => {
-  vi.clearAllMocks();
-  mockReset(prismaMock);
-  mockReset(redisMock);
-  mockReset(s3Mock);
-  mockReset(stripeMock);
-});
-
-// Clean up after all tests
-afterAll(() => {
-  vi.clearAllMocks();
-});
+// Mock ResizeObserver
+const mockResizeObserver = jest.fn()
+mockResizeObserver.mockReturnValue({
+  observe: () => null,
+  unobserve: () => null,
+  disconnect: () => null,
+})
+window.ResizeObserver = mockResizeObserver
