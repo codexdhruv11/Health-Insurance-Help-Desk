@@ -1,184 +1,186 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { authOptions } from '@/app/api/auth/[...nextauth]/route';
-import { createMockUser } from '../setup';
-import bcrypt from 'bcryptjs';
-import { authenticator } from 'otplib';
-import { prisma } from '@/lib/prisma';
+import { hash } from 'bcryptjs'
+import { authenticator } from 'otplib'
+import { prisma } from '@/lib/prisma'
+import { handler } from '@/app/api/auth/[...nextauth]/route'
+import { UserRole } from '@prisma/client'
 
-vi.mock('bcryptjs', () => ({
-  default: {
-    compare: vi.fn(),
+// Mock Prisma client
+jest.mock('@/lib/prisma', () => ({
+  prisma: {
+    user: {
+      findUnique: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn(),
+    },
   },
-}));
-
-vi.mock('otplib', () => ({
-  authenticator: {
-    verify: vi.fn(),
-    options: {},
-  },
-}));
+}))
 
 describe('Authentication', () => {
-  const mockCredentials = {
-    email: 'test@example.com',
-    password: 'testpassword123',
-    mfaCode: '123456',
-  };
-
-  const mockPasswordHash = 'hashedpassword123';
-
   beforeEach(() => {
-    vi.clearAllMocks();
-  });
+    jest.clearAllMocks()
+  })
 
-  describe('authorize', () => {
-    it('should return null for non-existent user', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce(null);
+  describe('Credentials Provider', () => {
+    const mockUser = {
+      id: 'user-1',
+      email: 'test@example.com',
+      passwordHash: '',
+      role: UserRole.CUSTOMER,
+      mfaEnabled: false,
+      mfaSecret: null,
+    }
 
-      const result = await authOptions.providers[0].authorize!(mockCredentials);
-      expect(result).toBeNull();
-      expect(prisma.user.findUnique).toHaveBeenCalledWith({
-        where: { email: mockCredentials.email },
-        include: { customer: true, supportAgent: true },
-      });
-    });
+    beforeEach(async () => {
+      // Hash a known password
+      mockUser.passwordHash = await hash('Password123!', 12)
+    })
 
-    it('should return null for invalid password', async () => {
-      prisma.user.findUnique.mockResolvedValueOnce({
-        ...createMockUser(),
-        passwordHash: mockPasswordHash,
-      });
-      (bcrypt.compare as any).mockResolvedValueOnce(false);
+    it('should authenticate user with valid credentials', async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser)
 
-      const result = await authOptions.providers[0].authorize!(mockCredentials);
-      expect(result).toBeNull();
-      expect(bcrypt.compare).toHaveBeenCalledWith(
-        mockCredentials.password,
-        mockPasswordHash
-      );
-    });
-
-    it('should authenticate user without MFA', async () => {
-      const mockUser = {
-        ...createMockUser(),
-        passwordHash: mockPasswordHash,
-        mfaEnabled: false,
-      };
-      prisma.user.findUnique.mockResolvedValueOnce(mockUser);
-      (bcrypt.compare as any).mockResolvedValueOnce(true);
-
-      const result = await authOptions.providers[0].authorize!(mockCredentials);
-      expect(result).toEqual({
-        id: mockUser.id,
-        email: mockUser.email,
-        role: mockUser.role,
-        name: undefined,
-      });
-    });
-
-    it('should require MFA code when MFA is enabled', async () => {
-      const mockUser = {
-        ...createMockUser(),
-        passwordHash: mockPasswordHash,
-        mfaEnabled: true,
-        mfaSecret: 'secret123',
-      };
-      prisma.user.findUnique.mockResolvedValueOnce(mockUser);
-      (bcrypt.compare as any).mockResolvedValueOnce(true);
-
-      const credentialsWithoutMFA = {
-        email: mockCredentials.email,
-        password: mockCredentials.password,
-      };
-
-      const result = await authOptions.providers[0].authorize!(credentialsWithoutMFA);
-      expect(result).toBeNull();
-    });
-
-    it('should authenticate user with valid MFA code', async () => {
-      const mockUser = {
-        ...createMockUser(),
-        passwordHash: mockPasswordHash,
-        mfaEnabled: true,
-        mfaSecret: 'secret123',
-      };
-      prisma.user.findUnique.mockResolvedValueOnce(mockUser);
-      (bcrypt.compare as any).mockResolvedValueOnce(true);
-      (authenticator.verify as any).mockReturnValueOnce(true);
-
-      const result = await authOptions.providers[0].authorize!(mockCredentials);
-      expect(result).toEqual({
-        id: mockUser.id,
-        email: mockUser.email,
-        role: mockUser.role,
-        name: undefined,
-      });
-      expect(authenticator.verify).toHaveBeenCalledWith({
-        token: mockCredentials.mfaCode,
-        secret: mockUser.mfaSecret,
-      });
-    });
-
-    it('should reject invalid MFA code', async () => {
-      const mockUser = {
-        ...createMockUser(),
-        passwordHash: mockPasswordHash,
-        mfaEnabled: true,
-        mfaSecret: 'secret123',
-      };
-      prisma.user.findUnique.mockResolvedValueOnce(mockUser);
-      (bcrypt.compare as any).mockResolvedValueOnce(true);
-      (authenticator.verify as any).mockReturnValueOnce(false);
-
-      const result = await authOptions.providers[0].authorize!(mockCredentials);
-      expect(result).toBeNull();
-    });
-  });
-
-  describe('callbacks', () => {
-    it('should properly transform JWT token', async () => {
-      const mockUser = createMockUser({ name: 'Test User' });
-      const mockToken = { sub: mockUser.id };
-
-      const result = await authOptions.callbacks!.jwt!({
-        token: mockToken,
-        user: mockUser,
-      } as any);
-
-      expect(result).toEqual({
-        ...mockToken,
-        role: mockUser.role,
-        name: mockUser.name,
-      });
-    });
-
-    it('should properly transform session', async () => {
-      const mockToken = {
-        sub: 'test-user-id',
-        role: 'CUSTOMER',
-        name: 'Test User',
-      };
-      const mockSession = {
-        user: {
+      const result = await handler.authorize!({
+        credentials: {
           email: 'test@example.com',
+          password: 'Password123!',
         },
-      };
-
-      const result = await authOptions.callbacks!.session!({
-        session: mockSession,
-        token: mockToken,
-      } as any);
+        req: {} as any,
+      })
 
       expect(result).toEqual({
-        ...mockSession,
-        user: {
-          id: mockToken.sub,
-          email: mockSession.user.email,
-          role: mockToken.role,
-          name: mockToken.name,
-        },
-      });
-    });
-  });
-});
+        id: mockUser.id,
+        email: mockUser.email,
+        role: mockUser.role,
+      })
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { email: 'test@example.com' },
+      })
+    })
+
+    it('should reject invalid password', async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser)
+
+      await expect(
+        handler.authorize!({
+          credentials: {
+            email: 'test@example.com',
+            password: 'WrongPassword123!',
+          },
+          req: {} as any,
+        })
+      ).rejects.toThrow('Invalid email or password')
+    })
+
+    it('should reject non-existent user', async () => {
+      ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(null)
+
+      await expect(
+        handler.authorize!({
+          credentials: {
+            email: 'nonexistent@example.com',
+            password: 'Password123!',
+          },
+          req: {} as any,
+        })
+      ).rejects.toThrow('Invalid email or password')
+    })
+
+    it('should handle missing credentials', async () => {
+      await expect(
+        handler.authorize!({
+          credentials: {},
+          req: {} as any,
+        })
+      ).rejects.toThrow('Please enter your email and password')
+    })
+
+    describe('MFA Authentication', () => {
+      const mockUserWithMFA = {
+        ...mockUser,
+        mfaEnabled: true,
+        mfaSecret: 'TESTSECRET123',
+      }
+
+      beforeEach(() => {
+        ;(prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUserWithMFA)
+      })
+
+      it('should require MFA code when MFA is enabled', async () => {
+        await expect(
+          handler.authorize!({
+            credentials: {
+              email: 'test@example.com',
+              password: 'Password123!',
+            },
+            req: {} as any,
+          })
+        ).rejects.toThrow('MFA_REQUIRED')
+      })
+
+      it('should validate correct MFA code', async () => {
+        const validCode = authenticator.generate(mockUserWithMFA.mfaSecret)
+
+        const result = await handler.authorize!({
+          credentials: {
+            email: 'test@example.com',
+            password: 'Password123!',
+            mfaCode: validCode,
+          },
+          req: {} as any,
+        })
+
+        expect(result).toEqual({
+          id: mockUserWithMFA.id,
+          email: mockUserWithMFA.email,
+          role: mockUserWithMFA.role,
+        })
+      })
+
+      it('should reject invalid MFA code', async () => {
+        await expect(
+          handler.authorize!({
+            credentials: {
+              email: 'test@example.com',
+              password: 'Password123!',
+              mfaCode: '123456',
+            },
+            req: {} as any,
+          })
+        ).rejects.toThrow('Invalid MFA code')
+      })
+    })
+  })
+
+  describe('Session Handling', () => {
+    it('should include user role and ID in JWT token', async () => {
+      const token = {}
+      const user = {
+        id: 'user-1',
+        role: UserRole.CUSTOMER,
+      }
+
+      const result = await handler.jwt!({ token, user, trigger: 'signIn' })
+
+      expect(result).toEqual({
+        role: user.role,
+        id: user.id,
+      })
+    })
+
+    it('should include user role and ID in session', async () => {
+      const session = { user: {} }
+      const token = {
+        role: UserRole.CUSTOMER,
+        id: 'user-1',
+      }
+
+      const result = await handler.session!({ session, token, trigger: 'update' })
+
+      expect(result.user).toEqual({
+        role: token.role,
+        id: token.id,
+      })
+    })
+  })
+})
 
