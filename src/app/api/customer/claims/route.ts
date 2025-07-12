@@ -72,7 +72,12 @@ export async function GET(request: Request) {
           policy: {
             select: {
               policyNumber: true,
-              planType: true,
+              plan: {
+                select: {
+                  planType: true,
+                  name: true,
+                },
+              },
             },
           },
           documents: {

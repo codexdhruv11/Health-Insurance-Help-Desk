@@ -1,0 +1,109 @@
+name: CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+env:
+  NODE_VERSION: 18
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+    steps:
+      - id: set-env
+        run: |
+          if [[ ${{ github.ref }} == 'refs/heads/main' ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+          else
+            echo "environment=staging" >> $GITHUB_OUTPUT
+          fi
+
+  deploy:
+    needs: prepare
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: build
+          path: .next/
+
+      - name: Pull Vercel Environment Information
+        run: vercel pull --yes --environment=${{ needs.prepare.outputs.environment }} --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy to Vercel
+        run: |
+          if [[ "${{ needs.prepare.outputs.environment }}" == "production" ]]; then
+            vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+          else
+            vercel deploy --token=${{ secrets.VERCEL_TOKEN }}
+          fi
+
+  database:
+    needs: [prepare, deploy]
+    runs-on: ubuntu-latest
+    environment: ${{ needs.prepare.outputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy database migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  notify:
+    needs: [prepare, deploy, database]
+    runs-on: ubuntu-latest
+    if: always()
+
+    steps:
+      - name: Notify success
+        if: needs.deploy.result == 'success' && needs.database.result == 'success'
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          slack-message: "✅ Successfully deployed to ${{ needs.prepare.outputs.environment }} environment"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Notify failure
+        if: needs.deploy.result == 'failure' || needs.database.result == 'failure'
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          slack-message: "❌ Failed to deploy to ${{ needs.prepare.outputs.environment }} environment"
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }} 

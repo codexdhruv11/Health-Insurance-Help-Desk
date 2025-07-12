@@ -13,19 +13,29 @@ export function MainNav() {
             </Link>
           </div>
           <div className="hidden md:flex md:items-center md:space-x-6">
-            <Link href="/insurance/compare">
+            <Link href="/plans">
+              <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
+                Browse Plans
+              </Button>
+            </Link>
+            <Link href="/compare">
               <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
                 Compare Plans
               </Button>
             </Link>
-            <Link href="/claims">
+            <Link href="/quote">
               <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
-                Claims
+                Get Quote
               </Button>
             </Link>
-            <Link href="/support">
+            <Link href="/hospitals">
               <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
-                Support
+                Hospitals
+              </Button>
+            </Link>
+            <Link href="/customer/dashboard">
+              <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
+                Dashboard
               </Button>
             </Link>
             <UserNav />

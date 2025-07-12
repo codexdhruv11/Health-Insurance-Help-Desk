@@ -1,0 +1,170 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-healthinsurance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+      POSTGRES_DB: ${POSTGRES_DB:-health_insurance_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U healthinsurance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-password}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # LocalStack for local AWS services (S3, SES, etc.)
+  localstack:
+    image: localstack/localstack:latest
+    restart: unless-stopped
+    environment:
+      - SERVICES=s3,ses
+      - DEBUG=${LOCALSTACK_DEBUG:-0}
+      - DATA_DIR=/tmp/localstack/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - EDGE_PORT=4566
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "4510-4559:4510-4559"
+    volumes:
+      - localstack_data:/tmp/localstack
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+
+  # MailHog for local email testing
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "${MAILHOG_SMTP_PORT:-1025}:1025"  # SMTP server
+      - "${MAILHOG_UI_PORT:-8025}:8025"    # Web interface
+    networks:
+      - app-network
+
+  # Stripe CLI for webhook testing
+  stripe:
+    image: stripe/stripe-cli:latest
+    restart: unless-stopped
+    environment:
+      - STRIPE_API_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_DEVICE_NAME=docker-container
+    command: listen --api-key ${STRIPE_SECRET_KEY} --forward-to app:3000/api/webhooks/stripe
+    networks:
+      - app-network
+
+  # Next.js Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=${NODE_ENV:-production}
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-healthinsurance}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-health_insurance_db}
+      - REDIS_URL=redis://default:${REDIS_PASSWORD:-password}@redis:6379
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - AWS_S3_BUCKET=health-insurance-documents
+      - SMTP_HOST=mailhog
+      - SMTP_PORT=1025
+      - SMTP_SECURE=false
+      - SMTP_USER=test
+      - SMTP_PASS=test
+      - SMTP_FROM=noreply@healthinsurance.local
+      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-your-super-secret-key-here}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_PUBLISHABLE_KEY=${STRIPE_PUBLISHABLE_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - UPLOAD_MAX_SIZE=10485760
+      - ALLOWED_FILE_TYPES=application/pdf,image/jpeg,image/png
+      - RATE_LIMIT_WINDOW=60000
+      - RATE_LIMIT_MAX=100
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      localstack:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+      stripe:
+        condition: service_started
+    networks:
+      - app-network
+
+  # Prisma Studio for database management
+  prisma-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: npx prisma studio
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-healthinsurance}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-health_insurance_db}
+    ports:
+      - "${PRISMA_STUDIO_PORT:-5555}:5555"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+
+volumes:
+  postgres_data:
+    name: health-insurance-postgres-data
+  redis_data:
+    name: health-insurance-redis-data
+  localstack_data:
+    name: health-insurance-localstack-data
+
+networks:
+  app-network:
+    name: health-insurance-network
+    driver: bridge

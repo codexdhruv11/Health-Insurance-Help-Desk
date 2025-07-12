@@ -28,11 +28,16 @@ export async function GET(request: Request) {
           select: {
             id: true,
             policyNumber: true,
-            planType: true,
             status: true,
             effectiveDate: true,
             expirationDate: true,
             premiumAmount: true,
+            plan: {
+              select: {
+                planType: true,
+                name: true,
+              },
+            },
           },
         },
         tickets: {

@@ -5,6 +5,7 @@ import { prisma } from '../../../../lib/prisma'
 import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { UserRole } from '@prisma/client'
+import { authenticator } from 'otplib'
 
 // Extend NextAuth types
 declare module 'next-auth' {
@@ -75,7 +76,21 @@ export const authOptions: NextAuthOptions = {
             if (!mfaCode) {
               throw new Error('MFA code required')
             }
-            // TODO: Implement MFA verification
+            
+            // Verify TOTP code
+            if (!user.mfaSecret) {
+              throw new Error('MFA secret not configured')
+            }
+            
+            authenticator.options = { window: 1 }; // Allow 1 step tolerance
+            const isValidMFA = authenticator.verify({
+              token: mfaCode,
+              secret: user.mfaSecret,
+            })
+            
+            if (!isValidMFA) {
+              throw new Error('Invalid MFA code')
+            }
           }
 
           return {
@@ -135,4 +150,4 @@ export const authOptions: NextAuthOptions = {
 }
 
 const handler = NextAuth(authOptions)
-export { handler as GET, handler as POST } 
+export { handler as GET, handler as POST }

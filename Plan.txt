@@ -1,0 +1,449 @@
+I have created the following plan after thorough exploration and analysis of the codebase. Follow the below plan verbatim. Trust the files and references. Do not re-verify what's written in the plan. Explore only when absolutely necessary. First implement all the proposed file changes and then I'll review all the changes together at the end. Make sure you fix all the linting, compilation or validation issues after successful implementation of the plan.
+
+### Observations
+
+Based on my comprehensive exploration of the Health Insurance Help Desk codebase, I've identified this as a substantial Next.js application with Prisma, NextAuth, Stripe integration, and AWS S3 document handling. The project has a solid foundation but requires significant completion work across multiple areas: incomplete business logic (family members, MFA, document generation), missing infrastructure setup (database migrations, environment variables), zero test coverage, security hardening, and production readiness improvements. The codebase shows good architectural patterns but has numerous TODOs and placeholder implementations that need to be addressed.
+
+### Approach
+
+The implementation plan focuses on completing the remaining critical features and infrastructure setup to make this health insurance platform production-ready. The approach prioritizes: 1) Infrastructure foundation (database, environment, security), 2) Core business logic completion (family members, document generation, MFA), 3) Testing implementation, 4) Production hardening. Each step builds upon previous work while maintaining the existing architectural patterns and ensuring seamless integration with current functionality.
+
+### Reasoning
+
+I systematically explored the codebase by first understanding the project structure and dependencies, then analyzing the database schema and main application components. I conducted targeted searches for TODOs and incomplete features, examined the database and environment setup, analyzed the testing infrastructure (or lack thereof), and performed a comprehensive security review. I also reviewed key business logic files, UI components, and email templates to understand the complete scope of remaining work.
+
+## Mermaid Diagram
+
+sequenceDiagram
+    participant Dev as Developer
+    participant Env as Environment Setup
+    participant DB as Database
+    participant Auth as Authentication
+    participant Quote as Quote Engine
+    participant Test as Testing
+    participant Prod as Production
+
+    Dev->>Env: 1. Setup environment variables
+    Env->>DB: 2. Configure database connection
+    DB->>DB: 3. Run migrations & seeding
+    
+    Dev->>Auth: 4. Implement MFA functionality
+    Auth->>Auth: 5. Add security headers & CORS
+    
+    Dev->>Quote: 6. Complete business logic
+    Quote->>Quote: 7. Family members, risk assessment
+    Quote->>Quote: 8. Document generation, geospatial search
+    
+    Dev->>Test: 9. Implement testing framework
+    Test->>Test: 10. Unit, integration, component tests
+    
+    Dev->>Prod: 11. Production hardening
+    Prod->>Prod: 12. Security enhancements, monitoring
+    
+    Note over Dev,Prod: Parallel tracks: Infrastructure → Core Features → Testing → Production
+
+## Proposed File Changes
+
+### .env.example(NEW)
+
+References: 
+
+- .env.local
+
+Create a comprehensive environment variables template file that includes all required variables identified in the codebase analysis. Include sections for:
+
+- Database configuration (DATABASE_URL)
+- NextAuth configuration (NEXTAUTH_URL, NEXTAUTH_SECRET)
+- Stripe payment configuration (STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET)
+- AWS S3 configuration (AWS_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_S3_BUCKET)
+- SMTP email configuration (SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, SMTP_FROM)
+- Application configuration (NEXT_PUBLIC_BASE_URL, NODE_ENV)
+- Optional Redis configuration for distributed rate limiting (REDIS_URL)
+
+Include comments explaining each variable's purpose and example values where appropriate. This addresses the missing environment template identified in the environment analysis.
+
+### prisma\migrations(NEW)
+
+References: 
+
+- prisma\schema.prisma
+
+Create the migrations directory to house database migration files. This directory will be populated when the initial migration is created using `npx prisma migrate dev --name init`.
+
+### prisma\seed.ts(NEW)
+
+References: 
+
+- prisma\schema.prisma
+- src\lib\prisma.ts
+
+Create a database seeding script that populates initial data for development and testing. Include:
+
+- Sample insurers with realistic data (names, ratings, establishment years)
+- Sample product plans for each insurer with various plan types (INDIVIDUAL, FAMILY, GROUP, MEDICARE, SENIOR_CITIZEN)
+- Sample hospitals with different specialties and locations
+- Network relationships between hospitals and plans
+- Sample plan benefits for each product plan
+- Admin user account for testing
+
+Use the Prisma client to create records and handle relationships properly. Include error handling and idempotent operations (check if data exists before creating). Reference the comprehensive schema in `prisma/schema.prisma` to ensure all required fields are populated.
+
+### package.json(MODIFY)
+
+Add missing scripts to the package.json file:
+
+- Add `"test": "jest"` script for running tests
+- Add `"test:watch": "jest --watch"` for development testing
+- Add `"test:coverage": "jest --coverage"` for coverage reports
+- Add `"db:seed": "tsx prisma/seed.ts"` for database seeding
+- Add `"db:reset": "prisma migrate reset"` for database reset
+- Add `"db:studio": "prisma studio"` for database GUI
+
+Also add `tsx` as a dev dependency for running TypeScript files directly. This addresses the missing test scripts identified in the testing analysis.
+
+### jest.config.ts(NEW)
+
+References: 
+
+- tsconfig.json
+
+Create a comprehensive Jest configuration file for the project. Configure:
+
+- TypeScript support using ts-jest preset
+- Next.js specific settings using next/jest
+- Test environment as jsdom for React component testing
+- Module path mapping to match tsconfig.json paths (@ alias)
+- Setup files for testing library and custom matchers
+- Coverage collection from src directory
+- Test file patterns for .test.ts, .test.tsx, .spec.ts, .spec.tsx files
+- Transform settings for TypeScript and JSX
+- Module name mapping for static assets
+
+This addresses the missing Jest configuration identified in the testing analysis.
+
+### src\lib\quote-engine.ts(MODIFY)
+
+References: 
+
+- src\types\index.ts
+- prisma\schema.prisma
+
+Complete the TODO implementations in the quote engine:
+
+1. **City tier lookup (line 189)**: Implement a city tier classification system that categorizes cities into Tier 1, 2, 3 based on population, infrastructure, and healthcare costs. Create a mapping function that affects premium calculations.
+
+2. **Medical history risk assessment (line 198)**: Implement risk scoring based on medical history input. Create risk factors for common conditions (diabetes, hypertension, heart disease) and apply appropriate premium adjustments.
+
+3. **Discount calculations (line 220)**: Implement comprehensive discount logic including:
+   - Family size discounts for multiple members
+   - Age-based discounts for senior citizens
+   - Loyalty discounts for existing customers
+   - Promotional discounts based on plan features
+   - Corporate group discounts
+
+4. Replace mock data fallback with proper error handling when database is unavailable.
+
+Ensure all calculations are properly typed and include comprehensive error handling. Reference the existing `QuoteInputSchema` and `ProductPlan` model structure.
+
+### src\app\api\auth\[...nextauth]\route.ts(MODIFY)
+
+References: 
+
+- prisma\schema.prisma
+- src\lib\auth.ts
+
+Complete the MFA implementation (TODO at line 78):
+
+1. Add MFA verification logic in the authorize function after password verification
+2. Check if user has MFA enabled and validate the provided MFA code
+3. Implement TOTP (Time-based One-Time Password) verification using a library like `otplib`
+4. Add proper error handling for invalid MFA codes
+5. Update the login schema to make mfaCode required when user has MFA enabled
+6. Add session state to track MFA completion
+
+Ensure the implementation works with the existing `mfaEnabled` and `mfaSecret` fields in the User model. Add appropriate error messages for MFA failures.
+
+### src\app\api\webhooks\stripe\route.ts(MODIFY)
+
+References: 
+
+- prisma\schema.prisma
+- src\app\api\documents\upload-url\route.ts(MODIFY)
+- src\emails\policy-welcome.tsx
+
+Complete the document generation implementation (TODO at line 202):
+
+1. **Policy document generation**: Implement PDF generation for insurance policies using a library like `@react-pdf/renderer` or `puppeteer`
+2. **Document templates**: Create policy document templates with customer details, plan information, terms and conditions
+3. **S3 upload**: Upload generated documents to S3 and create Document records in the database
+4. **Email attachment**: Attach policy documents to welcome emails
+5. **Document metadata**: Store document metadata including file size, MIME type, and S3 keys
+
+Replace the console.log statement with actual implementation. Ensure proper error handling and rollback mechanisms if document generation fails. Reference the `Document` model in the schema and the existing S3 configuration.
+
+### src\app\api\hospitals\route.ts(MODIFY)
+
+References: 
+
+- src\lib\search.ts
+- prisma\schema.prisma
+
+Implement geospatial search functionality (TODO at line 99):
+
+1. **Geospatial queries**: Implement location-based hospital search using PostGIS extensions or a geospatial service
+2. **Distance calculations**: Add distance calculation between user location and hospitals
+3. **Radius filtering**: Allow filtering hospitals within a specified radius
+4. **Location indexing**: Ensure proper indexing on location fields for performance
+5. **Fallback handling**: Provide fallback to text-based search when geospatial data is unavailable
+
+Remove the console.log statement and replace mock data with actual database queries. Update the Hospital model's location field to support geospatial data types if using PostGIS. Reference the existing hospital search functionality in `src/lib/search.ts`.
+
+### src\app\api\compare\route.ts(MODIFY)
+
+References: 
+
+- src\lib\recommendation.ts
+- prisma\schema.prisma
+
+Implement sophisticated plan scoring algorithm (TODO at line 226):
+
+1. **Multi-criteria scoring**: Implement scoring based on coverage amount, premium cost, insurer rating, network size, benefits coverage
+2. **User preference weighting**: Allow customizable weights for different criteria based on user preferences
+3. **Normalization**: Normalize scores across different metrics to ensure fair comparison
+4. **Ranking algorithm**: Implement ranking that considers both objective metrics and user-specific factors
+5. **Score explanation**: Provide breakdown of how scores are calculated for transparency
+
+Replace the placeholder score calculation with the actual algorithm. Ensure scores are calculated consistently and provide meaningful comparisons. Reference the plan comparison functionality and existing recommendation logic in `src/lib/recommendation.ts`.
+
+### src\app\api\plans\route.ts(MODIFY)
+
+References: 
+
+- prisma\schema.prisma
+
+Implement popularity sorting (TODO at line 87):
+
+1. **Popularity metrics**: Implement sorting based on quote count, policy count, and user ratings
+2. **Aggregation queries**: Use Prisma aggregation to calculate popularity scores
+3. **Caching**: Implement caching for popularity calculations to improve performance
+4. **Time-based weighting**: Apply time decay to popularity metrics (recent activity weighted higher)
+5. **Fallback sorting**: Provide fallback sorting options when popularity data is insufficient
+
+Replace mock data with actual database queries and remove placeholder logos with proper insurer logo handling. Ensure the sorting integrates well with existing filtering and pagination.
+
+### src\app\quote\page.tsx(MODIFY)
+
+References: 
+
+- src\components\ui\quote-form.tsx
+- src\lib\quote-engine.ts(MODIFY)
+
+Implement dynamic family member addition functionality (TODO at line 204):
+
+1. **Family member form**: Create dynamic form components for adding multiple family members
+2. **State management**: Implement proper React state management for family member data
+3. **Validation**: Add validation for family member relationships, ages, and required fields
+4. **UI components**: Create reusable components for family member input with add/remove functionality
+5. **Data flow**: Ensure family member data flows properly to the quote API
+
+Replace the commented TODO section with actual implementation. Use React Hook Form for form management and ensure proper TypeScript typing. Reference the existing quote form structure and the QuoteInputSchema.
+
+### src\app\checkout\page.tsx(MODIFY)
+
+References: 
+
+- src\app\api\checkout\route.ts
+- src\app\quote\page.tsx(MODIFY)
+
+Implement dynamic family member addition functionality (TODO at line 232):
+
+1. **Family member display**: Show family members added during quote process
+2. **Edit functionality**: Allow editing family member details during checkout
+3. **Nominee selection**: Implement nominee selection from family members
+4. **Premium calculation**: Display premium breakdown for each family member
+5. **Validation**: Ensure all family member data is complete before checkout
+
+Replace the placeholder text and TODO comments with actual implementation. Ensure consistency with the quote page family member functionality and proper integration with the checkout API.
+
+### src\middleware.ts(MODIFY)
+
+References: 
+
+- src\lib\rate-limit.ts(MODIFY)
+
+Enhance security headers and add missing security configurations:
+
+1. **Content Security Policy**: Add comprehensive CSP headers to prevent XSS attacks
+2. **HSTS headers**: Add Strict-Transport-Security headers for HTTPS enforcement
+3. **CORS configuration**: Implement proper CORS headers for API endpoints
+4. **Additional security headers**: Add X-DNS-Prefetch-Control, X-Download-Options, X-Permitted-Cross-Domain-Policies
+5. **Rate limiting integration**: Add hooks for distributed rate limiting if Redis is available
+
+Enhance the existing security headers while maintaining the current cookie cleanup functionality. Ensure headers are appropriate for both API routes and page routes.
+
+### src\lib\rate-limit.ts(MODIFY)
+
+Enhance rate limiting to support distributed environments:
+
+1. **Redis integration**: Add Redis support for distributed rate limiting across multiple instances
+2. **Configurable backends**: Support both in-memory and Redis backends with automatic fallback
+3. **Rate limit strategies**: Implement different strategies (sliding window, token bucket)
+4. **Per-user rate limiting**: Add support for authenticated user rate limiting in addition to IP-based
+5. **Rate limit headers**: Add standard rate limit headers (X-RateLimit-Limit, X-RateLimit-Remaining)
+
+Maintain backward compatibility with the existing in-memory implementation while adding distributed capabilities. Ensure proper error handling when Redis is unavailable.
+
+### src\app\api\documents\upload-url\route.ts(MODIFY)
+
+Enhance file upload security:
+
+1. **File type validation**: Implement strict file type validation beyond MIME type checking
+2. **File size limits**: Enforce file size limits at the S3 level in addition to schema validation
+3. **Virus scanning**: Add integration with antivirus scanning service (AWS GuardDuty or ClamAV)
+4. **Content validation**: Implement file content validation to ensure files match their declared types
+5. **Upload monitoring**: Add logging and monitoring for file upload activities
+
+Enhance the existing upload URL generation with additional security measures while maintaining the current functionality.
+
+### tests\setup.ts(NEW)
+
+References: 
+
+- jest.config.ts(NEW)
+
+Create test setup file for Jest configuration:
+
+1. **Testing Library setup**: Configure React Testing Library with custom render functions
+2. **Mock implementations**: Set up mocks for NextAuth, Prisma, and external services
+3. **Test utilities**: Create utility functions for creating test data and mocking API responses
+4. **Environment setup**: Configure test environment variables and database connections
+5. **Global test configuration**: Set up global beforeEach/afterEach hooks for test cleanup
+
+This file will be referenced in the Jest configuration and provide common testing utilities across all test files.
+
+### tests\lib\quote-engine.test.ts(NEW)
+
+References: 
+
+- src\lib\quote-engine.ts(MODIFY)
+- tests\setup.ts(NEW)
+
+Create comprehensive unit tests for the quote engine:
+
+1. **Quote calculation tests**: Test premium calculations for different scenarios (age groups, family sizes, coverage amounts)
+2. **Risk assessment tests**: Test medical history risk scoring and city tier calculations
+3. **Discount logic tests**: Test all discount types and combinations
+4. **Edge case tests**: Test boundary conditions, invalid inputs, and error scenarios
+5. **Mock data tests**: Test behavior when database is unavailable
+
+Use Jest and mock Prisma client for isolated testing. Ensure comprehensive coverage of all quote engine functionality including the newly implemented TODOs.
+
+### tests\api\auth.test.ts(NEW)
+
+References: 
+
+- src\app\api\auth\[...nextauth]\route.ts(MODIFY)
+- src\middleware\auth.ts
+
+Create integration tests for authentication APIs:
+
+1. **Login flow tests**: Test successful login, invalid credentials, MFA verification
+2. **Session management tests**: Test JWT token creation, validation, and expiration
+3. **Role-based access tests**: Test middleware authorization for different user roles
+4. **Security tests**: Test rate limiting, brute force protection, and session security
+5. **MFA tests**: Test TOTP setup, verification, and backup codes
+
+Mock external dependencies and use test database for integration testing. Ensure all authentication flows are properly tested.
+
+### tests\components\quote-form.test.tsx(NEW)
+
+References: 
+
+- src\components\ui\quote-form.tsx
+- src\app\quote\page.tsx(MODIFY)
+
+Create component tests for the quote form:
+
+1. **Form rendering tests**: Test form renders correctly with all fields
+2. **Validation tests**: Test form validation for required fields and data formats
+3. **User interaction tests**: Test form submission, field changes, and error handling
+4. **Family member tests**: Test dynamic family member addition and removal
+5. **Integration tests**: Test form integration with quote API
+
+Use React Testing Library for component testing and user event simulation. Ensure comprehensive coverage of form functionality.
+
+### README.md(NEW)
+
+References: 
+
+- package.json(MODIFY)
+- prisma\schema.prisma
+- .env.example(NEW)
+
+Create comprehensive project documentation:
+
+1. **Project overview**: Description of the health insurance help desk platform
+2. **Setup instructions**: Step-by-step setup for development environment
+3. **Environment configuration**: Detailed explanation of all environment variables
+4. **Database setup**: Instructions for running migrations and seeding
+5. **API documentation**: Overview of available endpoints and their usage
+6. **Testing guide**: Instructions for running tests and writing new tests
+7. **Deployment guide**: Instructions for production deployment
+8. **Architecture overview**: High-level system architecture and technology stack
+9. **Contributing guidelines**: Guidelines for contributing to the project
+
+Include code examples, troubleshooting tips, and links to relevant documentation.
+
+### docs\api.md(NEW)
+
+Create detailed API documentation:
+
+1. **Authentication endpoints**: Document login, logout, and session management
+2. **Quote endpoints**: Document quote creation, retrieval, and management
+3. **Plan endpoints**: Document plan listing, filtering, and details
+4. **Hospital endpoints**: Document hospital search and network information
+5. **Customer endpoints**: Document profile, policies, claims, and tickets
+6. **Webhook endpoints**: Document Stripe webhook handling
+7. **Request/response examples**: Provide sample requests and responses
+8. **Error handling**: Document error codes and error response formats
+9. **Rate limiting**: Document rate limiting policies and headers
+
+Use OpenAPI/Swagger format where possible and include authentication requirements for each endpoint.
+
+### docker-compose.yml(NEW)
+
+References: 
+
+- .env.example(NEW)
+
+Create Docker Compose configuration for local development:
+
+1. **PostgreSQL service**: Configure PostgreSQL database with proper volumes and environment
+2. **Redis service**: Configure Redis for distributed rate limiting and caching
+3. **LocalStack service**: Configure LocalStack for local S3 development
+4. **MailHog service**: Configure MailHog for local email testing
+5. **Application service**: Configure the Next.js application with proper dependencies
+6. **Environment configuration**: Set up environment variables for all services
+7. **Volume management**: Configure volumes for data persistence
+8. **Network configuration**: Set up proper networking between services
+
+This will provide a complete local development environment that matches production infrastructure.
+
+### .github\workflows\ci.yml(NEW)
+
+References: 
+
+- package.json(MODIFY)
+
+Create GitHub Actions CI/CD pipeline:
+
+1. **Test workflow**: Set up automated testing on pull requests and pushes
+2. **Build workflow**: Configure Next.js build and type checking
+3. **Database workflow**: Set up test database and run migrations
+4. **Linting workflow**: Configure ESLint and Prettier checks
+5. **Security scanning**: Add security vulnerability scanning
+6. **Coverage reporting**: Configure test coverage reporting
+7. **Deployment workflow**: Set up automated deployment to staging/production
+8. **Environment management**: Configure environment-specific deployments
+
+Include proper caching, parallel job execution, and failure notifications.

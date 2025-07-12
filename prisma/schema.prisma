@@ -26,6 +26,7 @@ model User {
   supportAgent  SupportAgent?
   sessions      Session[]
   tickets       SupportTicket[] @relation("AssignedAgent")
+  documents     Document[]
 }
 
 model Session {
@@ -55,6 +56,9 @@ model Customer {
   user          User      @relation(fields: [userId], references: [id])
   policies      Policy[]
   tickets       SupportTicket[]
+  quotes        Quote[]
+  payments      Payment[]
+  comparisons   PlanComparison[]
 }
 
 // Support Agent Information
@@ -75,8 +79,8 @@ model SupportAgent {
 model Policy {
   id              String    @id @default(uuid())
   customerId      String
+  planId          String    // New field to reference ProductPlan
   policyNumber    String    @unique
-  planType        PlanType
   status          PolicyStatus @default(ACTIVE)
   effectiveDate   DateTime
   expirationDate  DateTime
@@ -87,7 +91,26 @@ model Policy {
   
   // Relations
   customer        Customer  @relation(fields: [customerId], references: [id])
+  plan            ProductPlan @relation(fields: [planId], references: [id]) // New relation
   claims          Claim[]
+  payment         Payment?
+  familyMembers   FamilyMember[]
+}
+
+// Family Members
+model FamilyMember {
+  id              String    @id @default(uuid())
+  policyId        String
+  firstName       String
+  lastName        String
+  relationship    String
+  dateOfBirth     DateTime
+  createdAt       DateTime  @default(now())
+  
+  // Relations
+  policy          Policy    @relation(fields: [policyId], references: [id])
+
+  @@index([policyId])
 }
 
 // Insurance Claims
@@ -143,7 +166,7 @@ model Message {
 
 // Document Storage
 model Document {
-  id              String    @id @default(uuid())
+  id              String         @id @default(uuid())
   entityType      EntityType
   entityId        String
   fileName        String
@@ -151,11 +174,20 @@ model Document {
   mimeType        String
   s3Key           String
   uploadedById    String
-  createdAt       DateTime  @default(now())
+  status          DocumentStatus @default(PENDING)
+  hash            String?        // SHA-256 hash for deduplication
+  scanResult      Json?         // Virus scan results
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
   
   // Relations
   claim           Claim?         @relation(fields: [entityId], references: [id], map: "Document_claim_fkey")
   ticket          SupportTicket? @relation(fields: [entityId], references: [id], map: "Document_ticket_fkey")
+  uploadedBy      User           @relation(fields: [uploadedById], references: [id])
+
+  @@index([hash])
+  @@index([status])
+  @@index([entityType, entityId])
 }
 
 // Enums
@@ -171,6 +203,7 @@ enum PlanType {
   FAMILY
   GROUP
   MEDICARE
+  SENIOR_CITIZEN // New plan type
 }
 
 enum PolicyStatus {
@@ -213,4 +246,200 @@ enum EntityType {
   CLAIM
   POLICY
   TICKET
+  QUOTE          // New entity type
+  PLAN           // New entity type
+  HOSPITAL       // New entity type
 } 
+
+// Insurance Company Information
+model Insurer {
+  id              String    @id @default(uuid())
+  name            String    @unique
+  description     String
+  logo            String    // URL to logo image
+  rating          Float     // Rating out of 5
+  establishedYear Int
+  regulatoryInfo  Json     // Regulatory details and licenses
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  plans           ProductPlan[]
+}
+
+// Insurance Product Plans
+model ProductPlan {
+  id              String    @id @default(uuid())
+  insurerId       String
+  name            String
+  description     String
+  planType        PlanType
+  coverageAmount  Decimal
+  features        Json      // Key plan features
+  benefitsDetail  Json      // Detailed benefits structure
+  exclusions      Json     // Plan exclusions
+  waitingPeriods  Json     // Waiting periods for different conditions
+  pricingTiers    Json     // Age-based pricing matrix
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  insurer         Insurer   @relation(fields: [insurerId], references: [id])
+  policies        Policy[]
+  benefits        PlanBenefit[]
+  networkHospitals NetworkHospital[]
+  quotes          QuoteItem[]
+}
+
+// Plan Benefits
+model PlanBenefit {
+  id              String    @id @default(uuid())
+  planId          String
+  name            String
+  description     String
+  coverageAmount  Decimal
+  conditions      String?
+  waitingPeriod   Int      // in days
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  plan            ProductPlan @relation(fields: [planId], references: [id])
+}
+
+// Quote Requests
+model Quote {
+  id              String    @id @default(uuid())
+  customerId      String?
+  age             Int
+  city            String
+  coverageAmount  Decimal
+  familySize      Int      @default(1)
+  medicalHistory  Json?
+  status          QuoteStatus @default(ACTIVE)
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  customer        Customer? @relation(fields: [customerId], references: [id])
+  quoteItems      QuoteItem[]
+}
+
+// Quote Items (Plans with calculated premiums)
+model QuoteItem {
+  id              String    @id @default(uuid())
+  quoteId         String
+  planId          String
+  premium         Decimal
+  discounts       Json?
+  finalPremium    Decimal
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  quote           Quote      @relation(fields: [quoteId], references: [id])
+  plan            ProductPlan @relation(fields: [planId], references: [id])
+}
+
+// Hospital Network
+model Hospital {
+  id              String    @id @default(uuid())
+  name            String
+  address         Json
+  location        Json      // Latitude and longitude
+  specialties     String[]
+  facilities      String[]
+  emergencyServices Boolean @default(false)
+  rating          Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  networkPlans    NetworkHospital[]
+}
+
+// Network Hospital Relationships
+model NetworkHospital {
+  id              String    @id @default(uuid())
+  hospitalId      String
+  planId          String
+  cashless        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  hospital        Hospital   @relation(fields: [hospitalId], references: [id])
+  plan            ProductPlan @relation(fields: [planId], references: [id])
+
+  @@unique([hospitalId, planId])
+}
+
+// Payment Transactions
+model Payment {
+  id              String    @id @default(uuid())
+  policyId        String    @unique
+  customerId      String
+  amount          Decimal
+  status          PaymentStatus @default(PENDING)
+  paymentMethod   String
+  stripeSessionId String?
+  stripePaymentId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  // Relations
+  policy          Policy    @relation(fields: [policyId], references: [id])
+  customer        Customer  @relation(fields: [customerId], references: [id])
+}
+
+// Plan Comparisons
+model PlanComparison {
+  id              String    @id @default(uuid())
+  customerId      String?
+  planIds         String[]  // Array of plan IDs being compared
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+
+  // Relations
+  customer        Customer? @relation(fields: [customerId], references: [id])
+}
+
+// Add new enums
+enum QuoteStatus {
+  ACTIVE
+  EXPIRED
+  CONVERTED
+}
+
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum BenefitType {
+  ROOM_RENT
+  HOSPITALIZATION
+  CRITICAL_ILLNESS
+  MATERNITY
+  WELLNESS
+  DENTAL
+  OPTICAL
+  OTHER
+}
+
+enum HospitalType {
+  GOVERNMENT
+  PRIVATE
+  TRUST
+  CORPORATE
+}
+
+enum DocumentStatus {
+  PENDING   // Awaiting virus scan
+  READY     // Clean and ready for use
+  INFECTED  // Contains malware
+  DELETED   // Soft deleted
+}
