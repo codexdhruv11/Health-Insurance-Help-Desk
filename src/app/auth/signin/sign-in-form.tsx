@@ -21,12 +21,16 @@ export default function SignInForm() {
     const mfaCode = formData.get('mfaCode') as string | null
 
     try {
+      console.log('Attempting sign-in with:', { email, password: '***' })
+      
       const result = await signIn('credentials', {
         email,
         password,
         mfaCode,
         redirect: false,
       })
+      
+      console.log('Sign-in result:', result)
 
       if (result?.error === 'MFA code required') {
         setShowMfa(true)
@@ -35,14 +39,20 @@ export default function SignInForm() {
       }
 
       if (result?.error) {
-        setError('Invalid email or password')
+        console.error('Sign-in error:', result.error)
+        setError(result.error || 'Invalid email or password')
         setLoading(false)
         return
       }
 
       if (result?.ok) {
+        console.log('Sign-in successful, redirecting to home page')
         router.push('/')
         router.refresh()
+      } else {
+        console.log('Sign-in failed - no error but not ok')
+        setError('Sign-in failed. Please try again.')
+        setLoading(false)
       }
     } catch (error) {
       setError('An error occurred. Please try again.')
@@ -51,8 +61,24 @@ export default function SignInForm() {
   }
 
   return (
-    <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-      <div className="rounded-md shadow-sm -space-y-px">
+    <>
+      {process.env.NEXT_PUBLIC_ENV === 'development' && (
+        <div className="mb-4 rounded-md bg-blue-50 p-4">
+          <div className="flex">
+            <div className="ml-3">
+              <h3 className="text-sm font-medium text-blue-800">
+                Development Mode
+              </h3>
+              <div className="mt-2 text-sm text-blue-700">
+                <p>You can sign in with any Gmail address and any password.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <div className="rounded-md shadow-sm -space-y-px">
         <div>
           <label htmlFor="email" className="sr-only">
             Email address
@@ -119,5 +145,6 @@ export default function SignInForm() {
         </button>
       </div>
     </form>
+    </>
   )
-} 
+}
