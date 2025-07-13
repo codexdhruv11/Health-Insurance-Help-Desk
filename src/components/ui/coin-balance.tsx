@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './card';
 import { Badge } from './badge';
 import { Tooltip } from './tooltip';
 import { useSession } from 'next-auth/react';
 import { CoinTransaction } from '@prisma/client';
+import { useToast } from './toaster';
 
 interface CoinBalanceProps {
   variant?: 'compact' | 'full' | 'detailed';
   className?: string;
+  refreshInterval?: number; // in milliseconds
 }
 
 interface WalletData {
@@ -24,37 +26,75 @@ interface WalletData {
     cooldownPeriod: number;
     maxPerDay: number;
   }[];
+  taskProgress?: {
+    taskType: string;
+    completedToday: number;
+    nextAvailableAt?: string;
+  }[];
 }
 
-export function CoinBalance({ variant = 'full', className = '' }: CoinBalanceProps) {
+export function CoinBalance({ 
+  variant = 'full',
+  className = '',
+  refreshInterval = 30000, // 30 seconds
+}: CoinBalanceProps) {
   const { data: session } = useSession();
+  const { toast } = useToast();
   const [walletData, setWalletData] = useState<WalletData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
-  useEffect(() => {
+  const fetchWalletData = useCallback(async () => {
     if (!session?.user) return;
 
-    async function fetchWalletData() {
-      try {
-        const response = await fetch('/api/coins/balance');
-        if (!response.ok) throw new Error('Failed to fetch wallet data');
-        const data = await response.json();
-        setWalletData(data.data.wallet);
-        setError(null);
-      } catch (err) {
-        setError('Error loading coin balance');
-        console.error('Coin balance error:', err);
-      } finally {
-        setIsLoading(false);
+    try {
+      const response = await fetch('/api/coins/balance');
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to fetch wallet data');
       }
+      const data = await response.json();
+      setWalletData(data.data);
+      setError(null);
+      setRetryCount(0);
+    } catch (err) {
+      setError('Error loading coin balance');
+      console.error('Coin balance error:', err);
+      
+      // Retry up to 3 times with exponential backoff
+      if (retryCount < 3) {
+        const timeout = Math.pow(2, retryCount) * 1000;
+        setTimeout(() => {
+          setRetryCount(prev => prev + 1);
+          fetchWalletData();
+        }, timeout);
+      } else {
+        toast({
+          title: 'Error',
+          description: 'Failed to load coin balance. Please try again later.',
+          variant: 'destructive',
+        });
+      }
+    } finally {
+      setIsLoading(false);
     }
+  }, [session, retryCount, toast]);
 
+  useEffect(() => {
     fetchWalletData();
-  }, [session]);
+  }, [fetchWalletData]);
+
+  // Auto-refresh
+  useEffect(() => {
+    if (!session?.user || !refreshInterval) return;
+
+    const intervalId = setInterval(fetchWalletData, refreshInterval);
+    return () => clearInterval(intervalId);
+  }, [session, refreshInterval, fetchWalletData]);
 
   if (!session?.user) return null;
-  if (error) return <div className="text-red-500">{error}</div>;
+  if (error && retryCount >= 3) return <div className="text-red-500">{error}</div>;
 
   if (variant === 'compact') {
     return (
@@ -138,15 +178,35 @@ export function CoinBalance({ variant = 'full', className = '' }: CoinBalancePro
                 <div className="pt-4">
                   <h4 className="text-sm font-medium mb-2">Earning Opportunities</h4>
                   <div className="space-y-2">
-                    {walletData.earnOpportunities.map((opp) => (
-                      <div
-                        key={opp.taskType}
-                        className="flex items-center justify-between text-sm"
-                      >
-                        <span>{opp.taskType.replace(/_/g, ' ').toLowerCase()}</span>
-                        <Badge variant="secondary">+{opp.coinAmount}</Badge>
-                      </div>
-                    ))}
+                    {walletData.earnOpportunities.map((opp) => {
+                      const progress = walletData.taskProgress?.find(
+                        (p) => p.taskType === opp.taskType
+                      );
+                      const isAvailable = !progress?.nextAvailableAt || new Date(progress.nextAvailableAt) <= new Date();
+                      const remainingTasks = opp.maxPerDay - (progress?.completedToday || 0);
+
+                      return (
+                        <div
+                          key={opp.taskType}
+                          className="flex items-center justify-between text-sm"
+                        >
+                          <div className="flex flex-col">
+                            <span>{opp.taskType.replace(/_/g, ' ').toLowerCase()}</span>
+                            {progress && (
+                              <span className="text-xs text-muted-foreground">
+                                {remainingTasks} of {opp.maxPerDay} remaining
+                              </span>
+                            )}
+                          </div>
+                          <Badge
+                            variant={isAvailable ? 'secondary' : 'outline'}
+                            className={!isAvailable ? 'opacity-50' : ''}
+                          >
+                            +{opp.coinAmount}
+                          </Badge>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
