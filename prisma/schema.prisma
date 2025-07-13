@@ -81,6 +81,23 @@ enum WellnessActivityType {
   DIET_TRACKING
 }
 
+enum CoinEarnReason {
+  SIGN_UP
+  DAILY_LOGIN
+  POLICY_PURCHASE
+  REFERRAL
+  HEALTH_QUIZ
+  DOCUMENT_UPLOAD
+}
+
+enum RewardCategory {
+  ELECTRONICS
+  GIFT_CARD
+  PREMIUM_FEATURE
+  HEALTH_SERVICE
+  WELLNESS_PRODUCT
+}
+
 // Product Plans
 model ProductPlan {
   id              String    @id @default(uuid())
@@ -161,7 +178,7 @@ model Hospital {
 
 model Insurer {
   id              String    @id @default(uuid())
-  name            String
+  name            String    @unique
   logo            String?
   rating          Float?
   establishedYear Int?
@@ -425,7 +442,7 @@ model CoinTransaction {
   walletId      String
   type          String    // EARN, SPEND, REFUND
   amount        Int
-  reason        String?   // SIGN_UP, DAILY_LOGIN, etc.
+  reason        CoinEarnReason?
   metadata      Json?
   createdAt     DateTime  @default(now())
   
@@ -440,7 +457,7 @@ model CoinTransaction {
 
 model CoinEarnRule {
   id              String    @id @default(uuid())
-  taskType        String    @unique // SIGN_UP, DAILY_LOGIN, etc.
+  taskType        CoinEarnReason @unique
   coinAmount      Int
   cooldownPeriod  Int       // in minutes
   maxPerDay       Int       @default(1)
@@ -458,7 +475,7 @@ model RewardItem {
   name            String
   description     String
   coinCost        Int
-  category        String    // GIFT_CARD, PREMIUM_FEATURE, etc.
+  category        RewardCategory
   stock           Int       @default(0)
   isAvailable     Boolean   @default(true)
   isActive        Boolean   @default(true)
