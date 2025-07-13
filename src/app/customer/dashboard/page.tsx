@@ -1,9 +1,11 @@
 import React from 'react'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/app/api/auth/[...nextauth]/route'
+import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { UserRole } from '@/types'
 import Link from 'next/link'
+import { CoinBalance } from '@/components/ui/coin-balance'
+import { CoinEarningTasks } from '@/components/ui/coin-earning-tasks'
 
 export default async function CustomerDashboard() {
   const session = await getServerSession(authOptions)
@@ -21,9 +23,12 @@ export default async function CustomerDashboard() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
         <div className="px-4 py-6 sm:px-0">
-          <h1 className="text-3xl font-bold text-gray-900">
-            Welcome back, {session.user.name}
-          </h1>
+          <div className="flex items-start justify-between">
+            <h1 className="text-3xl font-bold text-gray-900">
+              Welcome back, {session.user.name}
+            </h1>
+            <CoinBalance variant="compact" />
+          </div>
           
           <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {/* Policies Card */}
@@ -120,6 +125,55 @@ export default async function CustomerDashboard() {
                     className="font-medium text-primary hover:text-primary/90"
                   >
                     View support tickets
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Coin Earning Section */}
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-4">
+              Earn More Coins
+            </h2>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <CoinEarningTasks />
+              <div className="bg-white overflow-hidden shadow rounded-lg p-6">
+                <h3 className="text-lg font-semibold mb-4">
+                  Benefits of Earning Coins
+                </h3>
+                <ul className="space-y-3 text-sm text-gray-600">
+                  <li className="flex items-center">
+                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Get discounts on policy premiums
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Redeem exclusive health and wellness rewards
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Access premium features and services
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="h-5 w-5 text-green-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                    Get priority customer support
+                  </li>
+                </ul>
+                <div className="mt-6">
+                  <Link
+                    href="/rewards"
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                  >
+                    Visit Rewards Store
                   </Link>
                 </div>
               </div>
