@@ -177,8 +177,8 @@ export async function GET(req: Request) {
             user: {
               select: {
                 id: true,
-                name: true,
                 email: true,
+                role: true,
               },
             },
           },
