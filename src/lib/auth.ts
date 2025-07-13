@@ -1,7 +1,7 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { prisma } from "./prisma";
-import { compare } from "bcrypt";
+import { compare, hash } from "bcrypt";
 
 export const authOptions: NextAuthOptions = {
   session: {
@@ -22,6 +22,33 @@ export const authOptions: NextAuthOptions = {
           return null;
         }
 
+        // In development, allow any user to sign in
+        if (process.env.NODE_ENV === 'development') {
+          let user = await prisma.user.findUnique({
+            where: { email: credentials.email }
+          });
+
+          // If user doesn't exist, create them
+          if (!user) {
+            const hashedPassword = await hash(credentials.password, 10);
+            user = await prisma.user.create({
+              data: {
+                email: credentials.email,
+                passwordHash: hashedPassword,
+                role: 'CUSTOMER', // Default role
+              }
+            });
+          }
+
+          // In development, accept any password
+          return {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+          };
+        }
+
+        // Production authentication logic
         const user = await prisma.user.findUnique({
           where: { email: credentials.email }
         });
