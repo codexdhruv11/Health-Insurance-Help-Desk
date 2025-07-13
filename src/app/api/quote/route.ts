@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
+import { authOptions } from '@/app/api/auth/[...nextauth]/route'
 import { rateLimit } from '@/lib/rate-limit'
 import { calculateQuote } from '@/lib/quote-engine'
 import { prisma } from '@/lib/prisma'
@@ -19,9 +20,13 @@ const quoteSchema = z.object({
 export async function POST(request: NextRequest) {
   try {
     // Rate limiting based on IP for anonymous users, user ID for authenticated
-    const session = await getServerSession()
+    const session = await getServerSession(authOptions)
     const identifier = session?.user?.id || request.ip || 'anonymous'
-    const { success } = await rateLimit(identifier)
+    const { success } = await rateLimit(identifier, {
+      maxRequests: 10,
+      windowMs: 60 * 1000, // 1 minute
+      prefix: 'quote:'
+    })
     
     if (!success) {
       return NextResponse.json(
@@ -39,14 +44,27 @@ export async function POST(request: NextRequest) {
 
     // For authenticated users, store the quote in the database
     if (session?.user) {
-      await prisma.quote.create({
-        data: {
-          ...quote,
-          userId: session.user.id,
-          status: 'PENDING',
-          quoteData: validatedData,
-        },
+      // First, we need to get the customer ID for the authenticated user
+      const customer = await prisma.customer.findUnique({
+        where: { userId: session.user.id }
       })
+
+      if (customer) {
+        await prisma.quote.create({
+          data: {
+            customerId: customer.id,
+            age: validatedData.age,
+            city: validatedData.city,
+            coverageAmount: validatedData.coverageAmount,
+            familySize: validatedData.familySize,
+            medicalHistory: validatedData.hasMedicalConditions ? {
+              conditions: validatedData.medicalConditions || []
+            } : undefined,
+            status: 'ACTIVE',
+            expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+          },
+        })
+      }
     }
 
     return NextResponse.json(quote)
@@ -67,7 +85,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await getServerSession()
+  const session = await getServerSession(authOptions)
 
   // Only authenticated users can view their quotes
   if (!session?.user) {
@@ -78,8 +96,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    // First get the customer for this user
+    const customer = await prisma.customer.findUnique({
+      where: { userId: session.user.id }
+    })
+
+    if (!customer) {
+      return NextResponse.json({ quotes: [] })
+    }
+
     const quotes = await prisma.quote.findMany({
-      where: { userId: session.user.id },
+      where: { customerId: customer.id },
       orderBy: { createdAt: 'desc' },
     })
 
