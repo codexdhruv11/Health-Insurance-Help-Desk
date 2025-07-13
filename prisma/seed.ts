@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole, PlanType } from '@prisma/client'
+import { PrismaClient, UserRole, PlanType, CoinEarnReason, RewardCategory } from '@prisma/client'
 import { hash } from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -29,6 +29,150 @@ async function main() {
           email: `${role.toLowerCase()}@example.com`,
           passwordHash: userPassword,
           role: role,
+        },
+      })
+    }
+
+    // Create coin earn rules
+    const earnRules = [
+      {
+        taskType: CoinEarnReason.SIGN_UP,
+        coinAmount: 100,
+        cooldownPeriod: 0, // One-time reward
+        maxPerDay: 1,
+        isActive: true,
+      },
+      {
+        taskType: CoinEarnReason.DAILY_LOGIN,
+        coinAmount: 10,
+        cooldownPeriod: 1440, // 24 hours in minutes
+        maxPerDay: 1,
+        isActive: true,
+      },
+      {
+        taskType: CoinEarnReason.POLICY_PURCHASE,
+        coinAmount: 500,
+        cooldownPeriod: 0, // No cooldown
+        maxPerDay: 5,
+        isActive: true,
+      },
+      {
+        taskType: CoinEarnReason.REFERRAL,
+        coinAmount: 200,
+        cooldownPeriod: 0, // No cooldown
+        maxPerDay: 10,
+        isActive: true,
+      },
+      {
+        taskType: CoinEarnReason.HEALTH_QUIZ,
+        coinAmount: 50,
+        cooldownPeriod: 10080, // 7 days in minutes
+        maxPerDay: 1,
+        isActive: true,
+      },
+      {
+        taskType: CoinEarnReason.DOCUMENT_UPLOAD,
+        coinAmount: 20,
+        cooldownPeriod: 0, // No cooldown
+        maxPerDay: 5,
+        isActive: true,
+      },
+    ]
+
+    for (const rule of earnRules) {
+      await prisma.coinEarnRule.upsert({
+        where: { id: `${rule.taskType}_${rule.isActive}` },
+        update: rule,
+        create: {
+          ...rule,
+          id: `${rule.taskType}_${rule.isActive}`,
+        },
+      })
+    }
+
+    // Create reward items
+    const rewards = [
+      {
+        name: 'Premium Smartwatch',
+        description: 'Track your health with this premium fitness smartwatch',
+        coinCost: 5000,
+        category: RewardCategory.ELECTRONICS,
+        stock: 10,
+        isAvailable: true,
+        imageUrl: '/rewards/smartwatch.jpg',
+      },
+      {
+        name: 'Health Check-up Voucher',
+        description: 'Comprehensive health check-up at partner hospitals',
+        coinCost: 2000,
+        category: RewardCategory.HEALTH,
+        stock: 50,
+        isAvailable: true,
+        imageUrl: '/rewards/health-checkup.jpg',
+      },
+      {
+        name: 'Gym Membership',
+        description: '1-month gym membership at partner fitness centers',
+        coinCost: 3000,
+        category: RewardCategory.HEALTH,
+        stock: 20,
+        isAvailable: true,
+        imageUrl: '/rewards/gym.jpg',
+      },
+      {
+        name: 'E-commerce Gift Card',
+        description: '₹1000 gift card for online shopping',
+        coinCost: 1000,
+        category: RewardCategory.VOUCHERS,
+        stock: 100,
+        isAvailable: true,
+        imageUrl: '/rewards/gift-card.jpg',
+      },
+      {
+        name: 'Wireless Earbuds',
+        description: 'Premium wireless earbuds for music and calls',
+        coinCost: 4000,
+        category: RewardCategory.ELECTRONICS,
+        stock: 15,
+        isAvailable: true,
+        imageUrl: '/rewards/earbuds.jpg',
+      },
+      {
+        name: 'Spa Voucher',
+        description: 'Relaxing spa session at luxury wellness centers',
+        coinCost: 2500,
+        category: RewardCategory.LIFESTYLE,
+        stock: 30,
+        isAvailable: true,
+        imageUrl: '/rewards/spa.jpg',
+      },
+      {
+        name: 'Movie Tickets',
+        description: 'Two premium movie tickets at partner theaters',
+        coinCost: 1500,
+        category: RewardCategory.LIFESTYLE,
+        stock: 50,
+        isAvailable: true,
+        imageUrl: '/rewards/movie.jpg',
+      },
+      {
+        name: 'Restaurant Voucher',
+        description: '₹2000 dining voucher at premium restaurants',
+        coinCost: 2000,
+        category: RewardCategory.VOUCHERS,
+        stock: 40,
+        isAvailable: true,
+        imageUrl: '/rewards/restaurant.jpg',
+      },
+    ]
+
+    for (const reward of rewards) {
+      await prisma.rewardItem.upsert({
+        where: { id: `${reward.name}_${reward.category}` },
+        update: reward,
+        create: {
+          ...reward,
+          id: `${reward.name}_${reward.category}`,
         },
       })
     }
@@ -152,13 +296,13 @@ async function main() {
         for (const benefit of benefits) {
           await prisma.planBenefit.upsert({
             where: { id: `${plan.id}_${benefit.name}` },
-      update: {},
-      create: {
+            update: {},
+            create: {
               ...benefit,
               planId: plan.id,
-      },
-    })
-  }
+            },
+          })
+        }
       }
     }
 
@@ -234,6 +378,38 @@ async function main() {
         where: { id: hospital.name }, // Using name as a unique identifier
         update: {},
         create: hospital,
+      })
+    }
+
+    // Create sample coin wallets for test users
+    const testUsers = await prisma.user.findMany({
+      where: { role: UserRole.CUSTOMER },
+    })
+
+    for (const user of testUsers) {
+      await prisma.coinWallet.upsert({
+        where: { userId: user.id },
+        update: {},
+        create: {
+          userId: user.id,
+          balance: 1000,
+          totalEarned: 1000,
+          totalSpent: 0,
+        },
+      })
+
+      // Create sample transactions
+      await prisma.coinTransaction.create({
+        data: {
+          walletId: (await prisma.coinWallet.findUnique({ where: { userId: user.id } }))!.id,
+          type: 'EARN',
+          amount: 1000,
+          reason: CoinEarnReason.SIGN_UP,
+          metadata: {
+            event: 'sign_up',
+            timestamp: new Date().toISOString(),
+          },
+        },
       })
     }
 
