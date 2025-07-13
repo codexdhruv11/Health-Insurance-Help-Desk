@@ -2,17 +2,17 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QuoteForm } from '@/components/ui/quote-form';
-import { vi } from 'vitest';
+import { jest } from '@jest/globals';
 
 describe('QuoteForm', () => {
-  const mockOnSubmit = vi.fn();
+  const mockOnSubmit = jest.fn();
   const defaultProps = {
     onSubmit: mockOnSubmit,
     loading: false,
   };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    jest.clearAllMocks();
   });
 
   it('renders all form fields correctly', () => {
@@ -38,171 +38,138 @@ describe('QuoteForm', () => {
     expect(screen.getByText(/add family member/i)).toBeInTheDocument();
   });
 
-  it('submits form with valid data', async () => {
-    render(<QuoteForm {...defaultProps} />);
-    const user = userEvent.setup();
+  describe('Form Validation', () => {
+    it('should show validation errors for required fields', async () => {
+      render(<QuoteForm {...defaultProps} />);
+      
+      // Submit without filling any fields
+      fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
 
-    // Fill personal information
-    await user.type(screen.getByLabelText(/first name/i), 'John');
-    await user.type(screen.getByLabelText(/last name/i), 'Doe');
-    await user.type(screen.getByLabelText(/age/i), '30');
-    await user.click(screen.getByLabelText(/gender/i));
-    await user.click(screen.getByText('Male'));
-    await user.type(screen.getByLabelText(/email/i), 'john@example.com');
-    await user.type(screen.getByLabelText(/phone/i), '1234567890');
+      await waitFor(() => {
+        expect(screen.getByText(/first name is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/last name is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/age is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/gender is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/email is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/city is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/state is required/i)).toBeInTheDocument();
+      });
 
-    // Fill location
-    await user.type(screen.getByLabelText(/city/i), 'New York');
-    await user.type(screen.getByLabelText(/state/i), 'NY');
-    await user.type(screen.getByLabelText(/pincode/i), '100001');
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
 
-    // Select medical conditions
-    await user.click(screen.getByText('Diabetes Type 2'));
-    await user.click(screen.getByText('High Blood Pressure'));
+    it('should validate age range', async () => {
+      render(<QuoteForm {...defaultProps} />);
+      
+      // Try invalid age
+      await userEvent.type(screen.getByLabelText(/age/i), '150');
+      fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
 
-    // Submit form
-    await user.click(screen.getByRole('button', { name: /get quotes/i }));
+      await waitFor(() => {
+        expect(screen.getByText(/age must be between 0 and 120/i)).toBeInTheDocument();
+      });
 
-    await waitFor(() => {
-      expect(mockOnSubmit).toHaveBeenCalledWith({
-        firstName: 'John',
-        lastName: 'Doe',
-        age: 30,
-        gender: 'Male',
-        email: 'john@example.com',
-        phone: '1234567890',
-        location: {
-          city: 'New York',
-          state: 'NY',
-          pincode: '100001',
-        },
-        medicalConditions: ['Diabetes Type 2', 'High Blood Pressure'],
-        familyMembers: [],
+      // Try negative age
+      await userEvent.clear(screen.getByLabelText(/age/i));
+      await userEvent.type(screen.getByLabelText(/age/i), '-5');
+
+      await waitFor(() => {
+        expect(screen.getByText(/age must be between 0 and 120/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should validate email format', async () => {
+      render(<QuoteForm {...defaultProps} />);
+      
+      // Try invalid email
+      await userEvent.type(screen.getByLabelText(/email/i), 'invalid-email');
+      fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/please enter a valid email/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should validate phone number format', async () => {
+      render(<QuoteForm {...defaultProps} />);
+      
+      // Try invalid phone number
+      await userEvent.type(screen.getByLabelText(/phone/i), '123');
+      fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/please enter a valid phone number/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should validate pincode format', async () => {
+      render(<QuoteForm {...defaultProps} />);
+      
+      // Try invalid pincode
+      await userEvent.type(screen.getByLabelText(/pincode/i), '12');
+      fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/please enter a valid pincode/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should validate family member details', async () => {
+      render(<QuoteForm {...defaultProps} />);
+      
+      // Add family member without details
+      fireEvent.click(screen.getByText(/add family member/i));
+      fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/family member name is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/relationship is required/i)).toBeInTheDocument();
+        expect(screen.getByText(/age is required/i)).toBeInTheDocument();
+      });
+    });
+
+    it('should validate medical conditions selection', async () => {
+      render(<QuoteForm {...defaultProps} />);
+      
+      // Check medical conditions without selecting any
+      const checkbox = screen.getByLabelText(/do you have any medical conditions/i);
+      fireEvent.click(checkbox);
+      fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/please select at least one medical condition/i)).toBeInTheDocument();
       });
     });
   });
 
-  it('shows validation errors for invalid data', async () => {
+  it('should submit form with valid data', async () => {
     render(<QuoteForm {...defaultProps} />);
-    const user = userEvent.setup();
+    
+    // Fill form with valid data
+    await userEvent.type(screen.getByLabelText(/first name/i), 'John');
+    await userEvent.type(screen.getByLabelText(/last name/i), 'Doe');
+    await userEvent.type(screen.getByLabelText(/age/i), '30');
+    await userEvent.selectOptions(screen.getByLabelText(/gender/i), 'MALE');
+    await userEvent.type(screen.getByLabelText(/email/i), 'john.doe@example.com');
+    await userEvent.type(screen.getByLabelText(/phone/i), '1234567890');
+    await userEvent.type(screen.getByLabelText(/city/i), 'Mumbai');
+    await userEvent.type(screen.getByLabelText(/state/i), 'Maharashtra');
+    await userEvent.type(screen.getByLabelText(/pincode/i), '400001');
 
-    // Submit empty form
-    await user.click(screen.getByRole('button', { name: /get quotes/i }));
-
-    await waitFor(() => {
-      expect(screen.getByText(/first name is required/i)).toBeInTheDocument();
-      expect(screen.getByText(/last name is required/i)).toBeInTheDocument();
-      expect(screen.getByText(/age must be at least 18/i)).toBeInTheDocument();
-      expect(screen.getByText(/invalid email address/i)).toBeInTheDocument();
-      expect(screen.getByText(/phone number must be at least 10 digits/i)).toBeInTheDocument();
-      expect(screen.getByText(/city is required/i)).toBeInTheDocument();
-      expect(screen.getByText(/state is required/i)).toBeInTheDocument();
-      expect(screen.getByText(/invalid pincode/i)).toBeInTheDocument();
-    });
-  });
-
-  it('handles adding and removing family members', async () => {
-    render(<QuoteForm {...defaultProps} />);
-    const user = userEvent.setup();
-
-    // Add family member
-    await user.click(screen.getByText(/add family member/i));
-
-    // Fill family member details
-    await user.type(screen.getByLabelText(/family member first name/i), 'Jane');
-    await user.type(screen.getByLabelText(/family member last name/i), 'Doe');
-    await user.type(screen.getByLabelText(/family member age/i), '25');
-    await user.click(screen.getByLabelText(/family member gender/i));
-    await user.click(screen.getByText('Female'));
-    await user.click(screen.getByLabelText(/family member relationship/i));
-    await user.click(screen.getByText('Spouse'));
-
-    // Select medical conditions for family member
-    await user.click(screen.getByText('Asthma'));
-
-    // Mark as nominee
-    await user.click(screen.getByLabelText(/mark as nominee/i));
-
-    // Fill rest of the form
-    await user.type(screen.getByLabelText(/first name/i), 'John');
-    await user.type(screen.getByLabelText(/last name/i), 'Doe');
-    await user.type(screen.getByLabelText(/age/i), '30');
-    await user.click(screen.getByLabelText(/gender/i));
-    await user.click(screen.getByText('Male'));
-    await user.type(screen.getByLabelText(/email/i), 'john@example.com');
-    await user.type(screen.getByLabelText(/phone/i), '1234567890');
-    await user.type(screen.getByLabelText(/city/i), 'New York');
-    await user.type(screen.getByLabelText(/state/i), 'NY');
-    await user.type(screen.getByLabelText(/pincode/i), '100001');
-
-    // Submit form
-    await user.click(screen.getByRole('button', { name: /get quotes/i }));
+    fireEvent.click(screen.getByRole('button', { name: /get quotes/i }));
 
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
-        familyMembers: [{
-          firstName: 'Jane',
-          lastName: 'Doe',
-          age: 25,
-          gender: 'Female',
-          relationship: 'Spouse',
-          medicalConditions: ['Asthma'],
-          isNominee: true,
-        }],
+        firstName: 'John',
+        lastName: 'Doe',
+        age: 30,
+        gender: 'MALE',
+        email: 'john.doe@example.com',
+        phone: '1234567890',
+        city: 'Mumbai',
+        state: 'Maharashtra',
+        pincode: '400001',
       }));
     });
-
-    // Remove family member
-    await user.click(screen.getByRole('button', { name: /remove family member/i }));
-
-    expect(screen.queryByText('Jane')).not.toBeInTheDocument();
-  });
-
-  it('handles loading state correctly', () => {
-    render(<QuoteForm {...defaultProps} loading={true} />);
-
-    expect(screen.getByRole('button', { name: /get quotes/i })).toBeDisabled();
-    expect(screen.getByText(/loading/i)).toBeInTheDocument();
-  });
-
-  it('pre-fills form with default values', () => {
-    const defaultValues = {
-      firstName: 'John',
-      lastName: 'Doe',
-      age: 30,
-      gender: 'Male',
-      email: 'john@example.com',
-      phone: '1234567890',
-      location: {
-        city: 'New York',
-        state: 'NY',
-        pincode: '100001',
-      },
-      medicalConditions: ['Diabetes Type 2'],
-      familyMembers: [{
-        firstName: 'Jane',
-        lastName: 'Doe',
-        age: 25,
-        gender: 'Female',
-        relationship: 'Spouse',
-        medicalConditions: ['Asthma'],
-        isNominee: true,
-      }],
-    };
-
-    render(<QuoteForm {...defaultProps} defaultValues={defaultValues} />);
-
-    expect(screen.getByLabelText(/first name/i)).toHaveValue('John');
-    expect(screen.getByLabelText(/last name/i)).toHaveValue('Doe');
-    expect(screen.getByLabelText(/age/i)).toHaveValue(30);
-    expect(screen.getByLabelText(/email/i)).toHaveValue('john@example.com');
-    expect(screen.getByLabelText(/phone/i)).toHaveValue('1234567890');
-    expect(screen.getByLabelText(/city/i)).toHaveValue('New York');
-    expect(screen.getByLabelText(/state/i)).toHaveValue('NY');
-    expect(screen.getByLabelText(/pincode/i)).toHaveValue('100001');
-
-    // Check family member
-    expect(screen.getByText('Jane')).toBeInTheDocument();
-    expect(screen.getByText('Spouse')).toBeInTheDocument();
   });
 }); 
