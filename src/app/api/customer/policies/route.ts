@@ -3,6 +3,14 @@ import { authOptions } from '../../auth/[...nextauth]/route'
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 import { UserRole, PolicyStatus } from '@prisma/client'
+import { rateLimit } from '@/lib/rate-limit'
+
+// Rate limit configuration
+const RATE_LIMIT = {
+  maxRequests: 20,
+  windowMs: 60 * 1000, // 1 minute
+  prefix: 'policies:',
+};
 
 // Mark this route as dynamic
 export const dynamic = 'force-dynamic'
@@ -17,6 +25,16 @@ export async function GET(request: Request) {
 
     if (session.user.role !== UserRole.CUSTOMER) {
       return new NextResponse('Forbidden', { status: 403 })
+    }
+
+    // Apply rate limiting
+    const { success } = await rateLimit(session.user.id, RATE_LIMIT);
+    
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429 }
+      );
     }
 
     // Get query parameters
@@ -62,6 +80,18 @@ export async function GET(request: Request) {
               status: true,
               totalAmount: true,
               approvedAmount: true,
+            },
+          },
+          plan: {
+            select: {
+              name: true,
+              planType: true,
+              coverageAmount: true,
+              insurer: {
+                select: {
+                  name: true,
+                },
+              },
             },
           },
         },
