@@ -18,33 +18,16 @@ export const authOptions: NextAuthOptions = {
         password: { label: "Password", type: "password" }
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        if (!credentials?.email) {
           return null;
         }
 
-        // In development, allow any user to sign in
+        // In development, allow any user to sign in without database interaction
         if (process.env.NODE_ENV === 'development') {
-          let user = await prisma.user.findUnique({
-            where: { email: credentials.email }
-          });
-
-          // If user doesn't exist, create them
-          if (!user) {
-            const hashedPassword = await hash(credentials.password, 10);
-            user = await prisma.user.create({
-              data: {
-                email: credentials.email,
-                passwordHash: hashedPassword,
-                role: 'CUSTOMER', // Default role
-              }
-            });
-          }
-
-          // In development, accept any password
           return {
-            id: user.id,
-            email: user.email,
-            role: user.role,
+            id: '1', // Dummy ID
+            email: credentials.email,
+            role: 'CUSTOMER', // Default role
           };
         }
 
