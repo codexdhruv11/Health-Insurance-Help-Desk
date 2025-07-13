@@ -1,6 +1,6 @@
 import { prisma } from './prisma'
 import { z } from 'zod'
-import { Plan, PlanBenefit, Insurer } from '@prisma/client'
+import { ProductPlan, PlanBenefit, Insurer } from '@prisma/client'
 
 // City tier data
 const CITY_TIERS = {
@@ -70,7 +70,7 @@ interface QuoteResult {
   }>
 }
 
-type PlanWithRelations = Plan & {
+type PlanWithRelations = ProductPlan & {
   insurer: Insurer
   benefits: PlanBenefit[]
 }
@@ -104,11 +104,9 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
     )
 
     // Get recommended plans
-    const plans = await prisma.plan.findMany({
+    const plans = await prisma.productPlan.findMany({
       where: {
-        minCoverageAmount: { lte: input.coverageAmount },
-        maxCoverageAmount: { gte: input.coverageAmount },
-        status: 'ACTIVE',
+        coverageAmount: { gte: input.coverageAmount },
       },
       include: {
         insurer: true,
@@ -121,7 +119,7 @@ export async function calculateQuote(input: QuoteInput): Promise<QuoteResult> {
           planId: plan.id,
       planName: plan.name,
       insurerName: plan.insurer.name,
-      premium: Math.round(finalPremium * (plan.premiumMultiplier || 1)),
+      premium: Math.round(finalPremium),
       features: plan.benefits.map(b => b.name),
     }))
 
