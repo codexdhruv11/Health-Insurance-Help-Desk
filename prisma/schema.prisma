@@ -27,6 +27,7 @@ model User {
   sessions      Session[]
   tickets       SupportTicket[] @relation("AssignedAgent")
   documents     Document[]
+  coinWallet    CoinWallet?
 }
 
 model Session {
@@ -442,4 +443,118 @@ enum DocumentStatus {
   READY     // Clean and ready for use
   INFECTED  // Contains malware
   DELETED   // Soft deleted
+}
+
+enum CoinTransactionType {
+  EARN
+  SPEND
+  REFUND
+}
+
+enum CoinEarnReason {
+  SIGN_UP
+  DAILY_LOGIN
+  POLICY_PURCHASE
+  REFERRAL
+  HEALTH_QUIZ
+  DOCUMENT_UPLOAD
+  ADMIN_CREDIT
+}
+
+enum RewardCategory {
+  ELECTRONICS
+  VOUCHERS
+  HEALTH
+  LIFESTYLE
+}
+
+enum RedemptionStatus {
+  PENDING
+  PROCESSING
+  FULFILLED
+  CANCELLED
+}
+
+model CoinWallet {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id])
+  balance     Int      @default(0)
+  totalEarned Int      @default(0)
+  totalSpent  Int      @default(0)
+  lastUpdated DateTime @updatedAt
+
+  transactions     CoinTransaction[]
+  redemptions      RewardRedemption[]
+
+  @@index([userId])
+  @@index([balance])
+}
+
+model CoinTransaction {
+  id          String             @id @default(cuid())
+  walletId    String
+  wallet      CoinWallet        @relation(fields: [walletId], references: [id])
+  type        CoinTransactionType
+  amount      Int
+  reason      CoinEarnReason?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([walletId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model CoinEarnRule {
+  id             String         @id @default(cuid())
+  taskType       CoinEarnReason
+  coinAmount     Int
+  cooldownPeriod Int           // in minutes
+  maxPerDay      Int
+  isActive       Boolean       @default(true)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([taskType, isActive])
+  @@index([taskType])
+  @@index([isActive])
+}
+
+model RewardItem {
+  id           String            @id @default(cuid())
+  name         String
+  description  String
+  coinCost     Int
+  category     RewardCategory
+  stock        Int              @default(0)
+  isAvailable  Boolean          @default(true)
+  imageUrl     String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  redemptions  RewardRedemption[]
+
+  @@unique([name, category])
+  @@index([category])
+  @@index([isAvailable])
+  @@index([coinCost])
+}
+
+model RewardRedemption {
+  id            String           @id @default(cuid())
+  walletId      String
+  wallet        CoinWallet      @relation(fields: [walletId], references: [id])
+  rewardItemId  String
+  rewardItem    RewardItem      @relation(fields: [rewardItemId], references: [id])
+  coinsCost     Int
+  status        RedemptionStatus
+  fulfillmentData Json?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([walletId])
+  @@index([rewardItemId])
+  @@index([status])
+  @@index([createdAt])
 }
