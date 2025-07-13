@@ -1,5 +1,5 @@
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -55,7 +55,6 @@ function isValidFileType(fileName: string, mimeType: string): boolean {
   const allowedExtensions = ALLOWED_FILE_TYPES[mimeType as keyof typeof ALLOWED_FILE_TYPES];
   if (!allowedExtensions) return false;
 
-  // Use some() to check if extension matches any allowed extension
   return allowedExtensions.some((ext: string) => ext === `.${extension}`);
 }
 
@@ -75,12 +74,36 @@ function isValidFileName(fileName: string): boolean {
   return /^[a-zA-Z0-9-_. ]+$/.test(fileName);
 }
 
-// Calculate file hash for deduplication
-async function calculateFileHash(buffer: ArrayBuffer): Promise<string> {
-  return crypto
-    .createHash('sha256')
-    .update(Buffer.from(buffer))
-    .digest('hex');
+// Generate secure file name
+function generateSecureFileName(originalName: string): string {
+  const extension = originalName.toLowerCase().split('.').pop();
+  const randomString = crypto.randomBytes(16).toString('hex');
+  const timestamp = Date.now();
+  return `${timestamp}-${randomString}.${extension}`;
+}
+
+// Verify webhook signature
+function verifyWebhookSignature(request: Request, signature: string): boolean {
+  const webhookSecret = process.env.VIRUS_SCAN_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.error('Missing VIRUS_SCAN_WEBHOOK_SECRET');
+    return false;
+  }
+
+  try {
+    const hmac = crypto.createHmac('sha256', webhookSecret);
+    const calculatedSignature = hmac
+      .update(JSON.stringify(request.body))
+      .digest('hex');
+
+    return crypto.timingSafeEqual(
+      Buffer.from(signature),
+      Buffer.from(calculatedSignature)
+    );
+  } catch (error) {
+    console.error('Webhook signature verification error:', error);
+    return false;
+  }
 }
 
 const uploadRequestSchema = z.object({
@@ -140,10 +163,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Generate unique file key
-    const fileExtension = body.fileName.split('.').pop()!.toLowerCase();
-    const randomString = crypto.randomBytes(16).toString('hex');
-    const key = `${body.entityType.toLowerCase()}/${body.entityId}/${randomString}.${fileExtension}`;
+    // Generate secure file name and key
+    const secureFileName = generateSecureFileName(body.fileName);
+    const key = `${body.entityType.toLowerCase()}/${body.entityId}/${secureFileName}`;
 
     // Create document record
     const document = await prisma.document.create({
@@ -171,6 +193,7 @@ export async function POST(request: Request) {
         'entity-type': body.entityType,
         'entity-id': body.entityId,
         'uploader-id': session.user.id,
+        'upload-timestamp': new Date().toISOString(),
       },
       // Server-side encryption
       ServerSideEncryption: 'AES256',
@@ -178,10 +201,27 @@ export async function POST(request: Request) {
       ContentMD5: body.hash ? Buffer.from(body.hash, 'hex').toString('base64') : undefined,
       // Object tagging
       Tagging: `status=pending&type=${body.entityType.toLowerCase()}`,
+      // Security headers
+      CacheControl: 'private, no-cache, no-store, must-revalidate',
+      ContentDisposition: `attachment; filename="${encodeURIComponent(body.fileName)}"`,
     });
 
     const uploadUrl = await getSignedUrl(s3Client, command, {
       expiresIn: 3600, // 1 hour
+    });
+
+    // Send file to virus scanning service
+    await fetch(process.env.VIRUS_SCAN_API_URL!, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.VIRUS_SCAN_API_KEY}`,
+      },
+      body: JSON.stringify({
+        documentId: document.id,
+        fileUrl: uploadUrl,
+        callbackUrl: `${process.env.API_URL}/api/documents/scan-webhook`,
+      }),
     });
 
     return NextResponse.json({
@@ -219,17 +259,40 @@ export async function PUT(request: Request) {
       },
     });
 
-    // If infected, delete from S3
+    // If infected, delete from S3 and notify admin
     if (!scanResult.clean) {
       const document = await prisma.document.findUnique({
         where: { id: documentId },
+        include: {
+          uploadedBy: true,
+        },
       });
 
       if (document) {
+        // Delete infected file
         await s3Client.send(new DeleteObjectCommand({
           Bucket: process.env.AWS_S3_BUCKET!,
           Key: document.s3Key,
         }));
+
+        // Notify admin
+        await fetch(process.env.ADMIN_WEBHOOK_URL!, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.ADMIN_WEBHOOK_KEY}`,
+          },
+          body: JSON.stringify({
+            type: 'INFECTED_FILE_DETECTED',
+            data: {
+              documentId: document.id,
+              fileName: document.fileName,
+              uploadedBy: document.uploadedBy.email,
+              uploadedAt: document.createdAt,
+              scanResult: scanResult,
+            },
+          }),
+        });
       }
     }
 
@@ -237,23 +300,5 @@ export async function PUT(request: Request) {
   } catch (error) {
     console.error('Virus scan webhook error:', error);
     return new NextResponse('Internal Server Error', { status: 500 });
-  }
-}
-
-// Verify webhook signature
-function verifyWebhookSignature(request: Request, signature: string): boolean {
-  try {
-    const payload = JSON.stringify(request.body);
-    const expectedSignature = crypto
-      .createHmac('sha256', process.env.WEBHOOK_SECRET!)
-      .update(payload)
-      .digest('hex');
-
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expectedSignature)
-    );
-  } catch {
-    return false;
   }
 } 
