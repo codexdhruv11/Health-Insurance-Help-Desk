@@ -3,70 +3,242 @@ import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+import { rateLimit } from '@/lib/rate-limit';
+import { ProductPlan, PlanBenefit, Insurer, Prisma } from '@prisma/client';
+
+// Raw query result types
+interface RawPlan extends ProductPlan {
+  insurerId: string;
+  insurerName: string;
+  insurerLogo: string | null;
+  insurerRating: number | null;
+  insurerEstablishedYear: number | null;
+  policyCount: string;
+  networkHospitalCount: string;
+}
+
+interface RawNetworkHospital {
+  id: string;
+  planId: string;
+  hospitalId: string;
+  hospitalName: string;
+  hospitalAddress: Prisma.JsonValue;
+  hospitalSpecialties: string[];
+  hospitalRating: number | null;
+  cashless: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+type PlanWithRelations = ProductPlan & {
+  insurer: {
+    id: string;
+    name: string;
+    logo: string | null;
+    rating: number | null;
+    establishedYear: number | null;
+  };
+  benefits: PlanBenefit[];
+  networkHospitals: {
+    hospital: {
+      id: string;
+      name: string;
+      address: Prisma.JsonValue;
+      specialties: string[];
+      rating: number | null;
+    };
+    cashless: boolean;
+  }[];
+  _count: {
+    policies: number;
+    networkHospitals: number;
+  };
+};
 
 // Input validation schema
 const CompareInputSchema = z.object({
-  planIds: z.array(z.string()).min(2).max(4),
+  planIds: z.array(z.string().uuid('Invalid plan ID format'))
+    .min(2, 'Must compare at least 2 plans')
+    .max(4, 'Cannot compare more than 4 plans')
+    .refine(
+      (ids) => new Set(ids).size === ids.length,
+      'Duplicate plan IDs are not allowed'
+    ),
 });
+
+// Rate limit configuration
+const RATE_LIMIT = {
+  maxRequests: 20,
+  windowMs: 60 * 1000, // 1 minute
+  prefix: 'compare:',
+};
+
+// Calculate similarity scores between plans
+function calculateSimilarityScores(plans: PlanWithRelations[]): Record<string, number> {
+  const scores: Record<string, number> = {};
+
+  for (let i = 0; i < plans.length; i++) {
+    for (let j = i + 1; j < plans.length; j++) {
+      const planA = plans[i];
+      const planB = plans[j];
+
+      // Calculate similarity based on coverage amount, benefits, and features
+      let similarity = 0;
+
+      // Coverage amount similarity (0-1)
+      const maxCoverage = Math.max(
+        (planA.coverageAmount as unknown as Prisma.Decimal).toNumber(),
+        (planB.coverageAmount as unknown as Prisma.Decimal).toNumber()
+      );
+      const coverageDiff = Math.abs(
+        (planA.coverageAmount as unknown as Prisma.Decimal).toNumber() -
+        (planB.coverageAmount as unknown as Prisma.Decimal).toNumber()
+      );
+      similarity += 1 - (coverageDiff / maxCoverage);
+
+      // Features similarity (0-1)
+      const featuresA = Object.keys(planA.features as Record<string, unknown>);
+      const featuresB = Object.keys(planB.features as Record<string, unknown>);
+      const commonFeatures = featuresA.filter(f => featuresB.includes(f));
+      similarity += commonFeatures.length / Math.max(featuresA.length, featuresB.length);
+
+      // Normalize to 0-100%
+      const score = Math.round((similarity / 2) * 100);
+      scores[`${planA.id}-${planB.id}`] = score;
+    }
+  }
+
+  return scores;
+}
 
 export async function POST(req: NextRequest) {
   try {
+    // Apply rate limiting
+    const session = await getServerSession(authOptions);
+    const identifier = session?.user?.id || req.ip || 'anonymous';
+    const { success } = await rateLimit(identifier, RATE_LIMIT);
+    
+    if (!success) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please try again later.' },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
     const { planIds } = CompareInputSchema.parse(body);
 
-    // Fetch plans with details
-    const plans = await prisma.productPlan.findMany({
-      where: {
-        id: { in: planIds },
-      },
-      include: {
-        insurer: {
-          select: {
-            id: true,
-            name: true,
-            logo: true,
-            rating: true,
-          },
-        },
-        benefits: true,
-        networkHospitals: {
-          select: {
-            hospital: {
-              select: {
-                id: true,
-                name: true,
-                address: true,
-                specialties: true,
-              },
-            },
-            cashless: true,
-          },
-        },
-        _count: {
-          select: {
-            policies: true,
-            networkHospitals: true,
-          },
-        },
-      },
-    });
+    // Verify all plans exist and are active using native query
+    const rawPlans = await prisma.$queryRaw<RawPlan[]>`
+      SELECT 
+        p.*,
+        i.id as "insurerId",
+        i.name as "insurerName",
+        i.logo as "insurerLogo",
+        i.rating as "insurerRating",
+        i.established_year as "insurerEstablishedYear",
+        COUNT(DISTINCT pol.id)::text as "policyCount",
+        COUNT(DISTINCT nh.id)::text as "networkHospitalCount"
+      FROM "ProductPlan" p
+      LEFT JOIN "Insurer" i ON p.insurer_id = i.id
+      LEFT JOIN "Policy" pol ON p.id = pol.plan_id
+      LEFT JOIN "NetworkHospital" nh ON p.id = nh.plan_id
+      WHERE p.id = ANY(${planIds}::uuid[])
+      AND p.status NOT IN ('DRAFT', 'ARCHIVED')
+      GROUP BY p.id, i.id
+    `;
 
-    if (plans.length !== planIds.length) {
+    if (rawPlans.length !== planIds.length) {
+      const foundIds = rawPlans.map(p => p.id);
+      const missingIds = planIds.filter(id => !foundIds.includes(id));
+      
       return NextResponse.json(
-        { error: 'One or more plans not found' },
+        { 
+          error: 'One or more plans not found or not available',
+          details: {
+            missingPlanIds: missingIds,
+          }
+        },
         { status: 404 }
       );
     }
 
+    // Get active benefits for the plans
+    const benefits = await prisma.$queryRaw<PlanBenefit[]>`
+      SELECT b.*
+      FROM "PlanBenefit" b
+      WHERE b.plan_id = ANY(${planIds}::uuid[])
+      AND b.status = 'ACTIVE'
+    `;
+
+    // Get network hospitals for the plans
+    const networkHospitals = await prisma.$queryRaw<RawNetworkHospital[]>`
+      SELECT 
+        nh.*,
+        h.id as "hospitalId",
+        h.name as "hospitalName",
+        h.address as "hospitalAddress",
+        h.specialties as "hospitalSpecialties",
+        h.rating as "hospitalRating"
+      FROM "NetworkHospital" nh
+      JOIN "Hospital" h ON nh.hospital_id = h.id
+      WHERE nh.plan_id = ANY(${planIds}::uuid[])
+    `;
+
+    // Combine the data
+    const enrichedPlans: PlanWithRelations[] = rawPlans.map(plan => ({
+      ...plan,
+      insurer: {
+        id: plan.insurerId,
+        name: plan.insurerName,
+        logo: plan.insurerLogo,
+        rating: plan.insurerRating,
+        establishedYear: plan.insurerEstablishedYear,
+      },
+      benefits: benefits.filter(b => b.planId === plan.id),
+      networkHospitals: networkHospitals
+        .filter(nh => nh.planId === plan.id)
+        .map(nh => ({
+          hospital: {
+            id: nh.hospitalId,
+            name: nh.hospitalName,
+            address: nh.hospitalAddress,
+            specialties: nh.hospitalSpecialties,
+            rating: nh.hospitalRating,
+          },
+          cashless: nh.cashless,
+        })),
+      _count: {
+        policies: Number(plan.policyCount),
+        networkHospitals: Number(plan.networkHospitalCount),
+      },
+    }));
+
+    // Verify plans are comparable (same type)
+    const planTypes = new Set(enrichedPlans.map(p => p.planType));
+    if (planTypes.size > 1) {
+      return NextResponse.json(
+        { 
+          error: 'Cannot compare plans of different types',
+          details: {
+            planTypes: Array.from(planTypes),
+          }
+        },
+        { status: 400 }
+      );
+    }
+
     // Generate comparison matrix
-    const comparisonMatrix = generateComparisonMatrix(plans);
+    const comparisonMatrix = generateComparisonMatrix(enrichedPlans);
 
     // Generate pros and cons
-    const prosAndCons = generateProsAndCons(plans);
+    const prosAndCons = generateProsAndCons(enrichedPlans);
 
-    // Format response
-    const response = {
-      plans: plans.map(plan => ({
+    // Calculate similarity scores
+    const similarityScores = calculateSimilarityScores(enrichedPlans);
+
+    return NextResponse.json({
+      plans: enrichedPlans.map(plan => ({
         id: plan.id,
         name: plan.name,
         insurer: plan.insurer,
@@ -76,29 +248,19 @@ export async function POST(req: NextRequest) {
         hospitalCount: plan._count.networkHospitals,
         policyCount: plan._count.policies,
       })),
-      comparisonMatrix,
+      matrix: comparisonMatrix,
       prosAndCons,
-      networkComparison: {
-        hospitalCounts: plans.map(plan => ({
-          planId: plan.id,
-          totalHospitals: plan._count.networkHospitals,
-          cashlessHospitals: plan.networkHospitals.filter(nh => nh.cashless).length,
-        })),
-        commonHospitals: findCommonHospitals(plans),
-      },
-    };
-
-    return NextResponse.json(response);
-  } catch (error: any) {
-    console.error('Plan comparison error:', error);
-
-    if (error.name === 'ZodError') {
+      similarityScores,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Invalid input data', details: error.errors },
+        { error: 'Invalid request data', details: error.errors },
         { status: 400 }
       );
     }
 
+    console.error('Plan comparison error:', error);
     return NextResponse.json(
       { error: 'Failed to compare plans' },
       { status: 500 }
@@ -107,20 +269,32 @@ export async function POST(req: NextRequest) {
 }
 
 // Helper function to generate comparison matrix
-function generateComparisonMatrix(plans: any[]) {
-  const matrix: any = {
+function generateComparisonMatrix(plans: PlanWithRelations[]): ComparisonMatrix {
+  const matrix: ComparisonMatrix = {
     basicInfo: {
       title: 'Basic Information',
       items: [
         {
           label: 'Coverage Amount',
-          values: plans.map(p => p.coverageAmount),
+          values: plans.map(p => ({
+            value: (p.coverageAmount as unknown as Prisma.Decimal).toNumber(),
+            displayValue: p.coverageAmount.toString(),
+          })),
         },
         {
           label: 'Plan Type',
-          values: plans.map(p => p.planType),
+          values: plans.map(p => ({
+            value: p.planType,
+            displayValue: p.planType,
+          })),
         },
-        // Add more basic info comparisons
+        {
+          label: 'Network Hospitals',
+          values: plans.map(p => ({
+            value: p._count.networkHospitals,
+            displayValue: p._count.networkHospitals.toString(),
+          })),
+        },
       ],
     },
     benefits: {
@@ -136,11 +310,32 @@ function generateComparisonMatrix(plans: any[]) {
   return matrix;
 }
 
+interface ComparisonValue {
+  value: number | string | boolean;
+  displayValue: string;
+}
+
+interface ComparisonItem {
+  label: string;
+  values: ComparisonValue[];
+}
+
+interface ComparisonSection {
+  title: string;
+  items: ComparisonItem[];
+}
+
+interface ComparisonMatrix {
+  basicInfo: ComparisonSection;
+  benefits: ComparisonSection;
+  waitingPeriods: ComparisonSection;
+}
+
 // Helper function to generate benefit comparisons
-function generateBenefitComparisons(plans: any[]) {
+function generateBenefitComparisons(plans: PlanWithRelations[]): ComparisonItem[] {
   const allBenefits = new Set<string>();
   plans.forEach(plan => {
-    plan.benefits.forEach((benefit: any) => {
+    plan.benefits.forEach(benefit => {
       allBenefits.add(benefit.name);
     });
   });
@@ -148,46 +343,100 @@ function generateBenefitComparisons(plans: any[]) {
   return Array.from(allBenefits).map(benefitName => ({
     label: benefitName,
     values: plans.map(plan => {
-      const benefit = plan.benefits.find((b: any) => b.name === benefitName);
-      return benefit ? {
-        covered: true,
-        amount: benefit.coverageAmount,
-        conditions: benefit.conditions,
-      } : {
-        covered: false,
+      const benefit = plan.benefits.find(b => b.name === benefitName);
+      if (!benefit) {
+        return { value: false, displayValue: 'Not Covered' };
+      }
+      return {
+        value: (benefit.coverageAmount as unknown as Prisma.Decimal).toNumber(),
+        displayValue: `Covered up to ${benefit.coverageAmount.toString()}`,
       };
     }),
   }));
 }
 
 // Helper function to generate waiting period comparisons
-function generateWaitingPeriodComparisons(plans: any[]) {
-  return Object.keys(plans[0].waitingPeriods).map(condition => ({
-    label: condition,
-    values: plans.map(p => p.waitingPeriods[condition]),
+function generateWaitingPeriodComparisons(plans: PlanWithRelations[]): ComparisonItem[] {
+  const allBenefits = new Set<string>();
+  plans.forEach(plan => {
+    plan.benefits.forEach(benefit => {
+      if (benefit.waitingPeriod) {
+        allBenefits.add(benefit.name);
+      }
+    });
+  });
+
+  return Array.from(allBenefits).map(benefitName => ({
+    label: benefitName,
+    values: plans.map(plan => {
+      const benefit = plan.benefits.find(b => b.name === benefitName);
+      if (!benefit?.waitingPeriod) {
+        return { value: 0, displayValue: 'No waiting period' };
+      }
+      return {
+        value: benefit.waitingPeriod,
+        displayValue: `${benefit.waitingPeriod} days`,
+      };
+    }),
   }));
 }
 
-// Helper function to generate pros and cons
-function generateProsAndCons(plans: any[]) {
+interface PlanProsAndCons {
+  planId: string;
+  pros: string[];
+  cons: string[];
+}
+
+function generateProsAndCons(plans: PlanWithRelations[]): PlanProsAndCons[] {
   return plans.map(plan => {
-    const pros = [];
-    const cons = [];
+    const otherPlans = plans.filter(p => p.id !== plan.id);
+    const pros: string[] = [];
+    const cons: string[] = [];
 
-    // Add pros based on various factors
-    if (plan.insurer.rating >= 4.5) {
-      pros.push('Highly rated insurer');
-    }
-    if (plan._count.networkHospitals > 5000) {
-      pros.push('Large hospital network');
+    // Compare coverage amount
+    const planCoverage = (plan.coverageAmount as unknown as Prisma.Decimal).toNumber();
+    const avgCoverage = otherPlans.reduce((sum, p) => 
+      sum + (p.coverageAmount as unknown as Prisma.Decimal).toNumber(), 0
+    ) / otherPlans.length;
+
+    if (planCoverage > avgCoverage) {
+      pros.push('Higher coverage amount than average');
+    } else if (planCoverage < avgCoverage) {
+      cons.push('Lower coverage amount than average');
     }
 
-    // Add cons based on various factors
-    if (plan.insurer.rating < 4.0) {
-      cons.push('Lower insurer rating');
+    // Compare network size
+    const avgNetworkSize = otherPlans.reduce((sum, p) => 
+      sum + p._count.networkHospitals, 0
+    ) / otherPlans.length;
+
+    if (plan._count.networkHospitals > avgNetworkSize) {
+      pros.push('Larger hospital network');
+    } else if (plan._count.networkHospitals < avgNetworkSize) {
+      cons.push('Smaller hospital network');
     }
-    if (plan._count.networkHospitals < 3000) {
-      cons.push('Limited hospital network');
+
+    // Compare benefits
+    const uniqueBenefits = plan.benefits.filter(benefit =>
+      !otherPlans.some(p => p.benefits.some(b => b.name === benefit.name))
+    );
+
+    if (uniqueBenefits.length > 0) {
+      pros.push(`Unique benefits: ${uniqueBenefits.map(b => b.name).join(', ')}`);
+    }
+
+    // Compare waiting periods
+    const avgWaitingPeriod = otherPlans.reduce((sum, p) => {
+      const totalWaiting = p.benefits.reduce((total, b) => total + (b.waitingPeriod || 0), 0);
+      return sum + totalWaiting;
+    }, 0) / otherPlans.length;
+
+    const planWaitingPeriod = plan.benefits.reduce((total, b) => total + (b.waitingPeriod || 0), 0);
+
+    if (planWaitingPeriod < avgWaitingPeriod) {
+      pros.push('Shorter waiting periods');
+    } else if (planWaitingPeriod > avgWaitingPeriod) {
+      cons.push('Longer waiting periods');
     }
 
     return {
