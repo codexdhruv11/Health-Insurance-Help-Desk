@@ -33,6 +33,151 @@ async function main() {
       })
     }
 
+    // Create test users with initial coins
+    const testUsers = [
+      {
+        email: 'test1@example.com',
+        name: 'Test User 1',
+        initialCoins: 5000,
+      },
+      {
+        email: 'test2@example.com',
+        name: 'Test User 2',
+        initialCoins: 2500,
+      },
+      {
+        email: 'test3@example.com',
+        name: 'Test User 3',
+        initialCoins: 7500,
+      },
+    ]
+
+    for (const testUser of testUsers) {
+      const user = await prisma.user.upsert({
+        where: { email: testUser.email },
+        update: {},
+        create: {
+          email: testUser.email,
+          passwordHash: userPassword,
+          role: UserRole.CUSTOMER,
+          customer: {
+            create: {
+              firstName: testUser.name.split(' ')[0],
+              lastName: testUser.name.split(' ')[1] || '',
+              dateOfBirth: new Date('1990-01-01'), // Default date for test users
+            }
+          }
+        },
+      })
+
+      // Create coin wallet for the user
+      const wallet = await prisma.coinWallet.upsert({
+        where: { userId: user.id },
+        update: { balance: testUser.initialCoins },
+        create: {
+          userId: user.id,
+          balance: testUser.initialCoins,
+          totalEarned: testUser.initialCoins,
+          totalSpent: 0,
+        },
+      })
+
+      // Add initial coin transaction
+      await prisma.coinTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: 'EARN',
+          amount: testUser.initialCoins,
+          reason: CoinEarnReason.SIGN_UP,
+          metadata: {
+            description: 'Initial coins for development',
+            timestamp: new Date().toISOString(),
+          },
+        },
+      })
+    }
+
+    // Create coin wallets for existing role-based users
+    const existingUsers = await prisma.user.findMany({
+      where: {
+        role: UserRole.CUSTOMER,
+        email: { endsWith: '@example.com' },
+      },
+    })
+
+    for (const user of existingUsers) {
+      const initialCoins = 1000
+      const wallet = await prisma.coinWallet.upsert({
+        where: { userId: user.id },
+        update: { balance: initialCoins },
+        create: {
+          userId: user.id,
+          balance: initialCoins,
+          totalEarned: initialCoins,
+          totalSpent: 0,
+        },
+      })
+
+      // Add initial coin transaction
+      await prisma.coinTransaction.create({
+        data: {
+          walletId: wallet.id,
+          type: 'EARN',
+          amount: initialCoins,
+          reason: CoinEarnReason.SIGN_UP,
+          metadata: {
+            description: 'Initial coins for development',
+            timestamp: new Date().toISOString(),
+          },
+        },
+      })
+    }
+
+    // Create some sample transactions for test users
+    const transactionTypes = [
+      { reason: CoinEarnReason.DAILY_LOGIN, amount: 10 },
+      { reason: CoinEarnReason.HEALTH_QUIZ, amount: 50 },
+      { reason: CoinEarnReason.DOCUMENT_UPLOAD, amount: 20 },
+      { reason: CoinEarnReason.REFERRAL, amount: 200 },
+    ]
+
+    for (const testUser of testUsers) {
+      const user = await prisma.user.findUnique({
+        where: { email: testUser.email },
+        include: { coinWallet: true },
+      })
+
+      if (!user || !user.coinWallet) continue
+
+      // Add some random transactions
+      for (const type of transactionTypes) {
+        const count = Math.floor(Math.random() * 3) + 1 // 1-3 transactions per type
+        for (let i = 0; i < count; i++) {
+          await prisma.coinTransaction.create({
+            data: {
+              walletId: user.coinWallet.id,
+              type: 'EARN',
+              amount: type.amount,
+              reason: type.reason,
+              metadata: {
+                description: `Earned from ${type.reason.toLowerCase()}`,
+                timestamp: new Date().toISOString(),
+              },
+            },
+          })
+
+          // Update wallet balance and total earned
+          await prisma.coinWallet.update({
+            where: { id: user.coinWallet.id },
+            data: { 
+              balance: { increment: type.amount },
+              totalEarned: { increment: type.amount },
+            },
+          })
+        }
+      }
+    }
+
     // Create coin earn rules
     const earnRules = [
       {
@@ -378,38 +523,6 @@ async function main() {
         where: { id: hospital.name }, // Using name as a unique identifier
         update: {},
         create: hospital,
-      })
-    }
-
-    // Create sample coin wallets for test users
-    const testUsers = await prisma.user.findMany({
-      where: { role: UserRole.CUSTOMER },
-    })
-
-    for (const user of testUsers) {
-      await prisma.coinWallet.upsert({
-        where: { userId: user.id },
-        update: {},
-        create: {
-          userId: user.id,
-          balance: 1000,
-          totalEarned: 1000,
-          totalSpent: 0,
-        },
-      })
-
-      // Create sample transactions
-      await prisma.coinTransaction.create({
-        data: {
-          walletId: (await prisma.coinWallet.findUnique({ where: { userId: user.id } }))!.id,
-          type: 'EARN',
-          amount: 1000,
-          reason: CoinEarnReason.SIGN_UP,
-          metadata: {
-            event: 'sign_up',
-            timestamp: new Date().toISOString(),
-          },
-        },
       })
     }
 
