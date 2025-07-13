@@ -1,8 +1,10 @@
 import { hash } from 'bcryptjs'
 import { authenticator } from 'otplib'
 import { prisma } from '@/lib/prisma'
-import { handler } from '@/app/api/auth/[...nextauth]/route'
+import { GET as handler } from '@/app/api/auth/[...nextauth]/route'
 import { UserRole } from '@prisma/client'
+import { rateLimit } from '@/lib/rate-limit'
+import { compare } from 'bcryptjs'
 
 // Mock Prisma client
 jest.mock('@/lib/prisma', () => ({
@@ -150,6 +152,74 @@ describe('Authentication', () => {
       })
     })
   })
+
+  describe('Rate Limiting', () => {
+    it('should block too many login attempts', async () => {
+      const mockRateLimit = {
+        success: false,
+        reset: new Date(Date.now() + 15 * 60 * 1000),
+      };
+      (rateLimit as jest.Mock).mockResolvedValue(mockRateLimit);
+
+      await expect(
+        handler.authorize!({
+          credentials: {
+            email: 'test@example.com',
+            password: 'Password123!',
+          },
+          req: {} as any,
+        })
+      ).rejects.toThrow('Too many login attempts. Please try again later.');
+    });
+
+    it('should allow login after rate limit expires', async () => {
+      const mockRateLimit = {
+        success: true,
+        reset: new Date(),
+      };
+      (rateLimit as jest.Mock).mockResolvedValue(mockRateLimit);
+
+      const result = await handler.authorize!({
+        credentials: {
+          email: 'test@example.com',
+          password: 'Password123!',
+        },
+        req: {} as any,
+      });
+
+      expect(result).toBeDefined();
+    });
+  });
+
+  describe('Error Handling', () => {
+    it('should handle database errors gracefully', async () => {
+      (prisma.user.findUnique as jest.Mock).mockRejectedValue(new Error('Database error'));
+
+      await expect(
+        handler.authorize!({
+          credentials: {
+            email: 'test@example.com',
+            password: 'Password123!',
+          },
+          req: {} as any,
+        })
+      ).rejects.toThrow('An error occurred during authentication');
+    });
+
+    it('should handle password hashing errors', async () => {
+      (compare as jest.Mock).mockRejectedValue(new Error('Hashing error'));
+
+      await expect(
+        handler.authorize!({
+          credentials: {
+            email: 'test@example.com',
+            password: 'Password123!',
+          },
+          req: {} as any,
+        })
+      ).rejects.toThrow('An error occurred during authentication');
+    });
+  });
 
   describe('Session Handling', () => {
     it('should include user role and ID in JWT token', async () => {
