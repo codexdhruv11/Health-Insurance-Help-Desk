@@ -10,6 +10,77 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Enums
+enum PlanType {
+  INDIVIDUAL
+  FAMILY
+  SENIOR
+  GROUP
+}
+
+enum UserRole {
+  ADMIN
+  AGENT
+  CUSTOMER
+}
+
+enum PolicyStatus {
+  ACTIVE
+  PENDING
+  EXPIRED
+  CANCELLED
+}
+
+enum ClaimStatus {
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum SupportChannel {
+  EMAIL
+  PHONE
+  CHAT
+  PORTAL
+}
+
+enum EntityType {
+  POLICY
+  CLAIM
+  TICKET
+  PROFILE
+}
+
+enum DocumentStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum WellnessActivityType {
+  EXERCISE
+  HEALTH_CHECK
+  VACCINATION
+  MEDITATION
+  DIET_TRACKING
+}
+
 // Product Plans
 model ProductPlan {
   id              String    @id @default(uuid())
@@ -30,6 +101,7 @@ model ProductPlan {
   policies        Policy[]
   benefits        PlanBenefit[]
   networkHospitals NetworkHospital[]
+  quotes          Quote[]
 
   @@index([planType])
   @@index([status])
@@ -121,6 +193,8 @@ model User {
   tickets       SupportTicket[] @relation("AssignedAgent")
   documents     Document[]
   coinWallet    CoinWallet?
+  healthMetrics HealthMetrics[]
+  wellnessActivities WellnessActivity[]
 
   @@index([email])
   @@index([role])
@@ -425,4 +499,95 @@ model RewardRedemption {
   @@index([rewardItemId])
   @@index([status])
   @@index([createdAt])
+}
+
+// Health and Wellness
+model HealthMetrics {
+  id        String   @id @default(uuid())
+  userId    String
+  metrics   Json
+  bmi       Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  // Relations
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model WellnessActivity {
+  id        String               @id @default(uuid())
+  userId    String
+  type      WellnessActivityType
+  duration  Int?
+  calories  Int?
+  details   Json?
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
+  
+  // Relations
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// Quotes and Payments
+model Quote {
+  id              String    @id @default(uuid())
+  customerId      String
+  planId          String
+  quoteNumber     String    @unique
+  coverageAmount  Decimal
+  premiumAmount   Decimal
+  riskFactor      Float
+  details         Json
+  expiresAt       DateTime
+  createdAt       DateTime  @default(now())
+  
+  // Relations
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  plan            ProductPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([customerId])
+  @@index([planId])
+  @@index([quoteNumber])
+  @@index([expiresAt])
+}
+
+model Payment {
+  id              String    @id @default(uuid())
+  policyId        String    @unique
+  customerId      String
+  amount          Decimal
+  status          String    // SUCCESS, FAILED, PENDING, REFUNDED
+  paymentMethod   String
+  transactionId   String?
+  receiptUrl      String?
+  createdAt       DateTime  @default(now())
+  
+  // Relations
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  policy          Policy    @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  @@index([customerId])
+  @@index([policyId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model PlanComparison {
+  id              String    @id @default(uuid())
+  customerId      String
+  planIds         String[]
+  comparisonDate  DateTime  @default(now())
+  
+  // Relations
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+  @@index([comparisonDate])
 }
