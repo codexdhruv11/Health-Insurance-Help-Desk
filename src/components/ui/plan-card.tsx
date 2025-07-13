@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Star, Heart, Users, Shield } from 'lucide-react';
+import { Star, Heart, Users, Shield, Building2, Stethoscope, Activity } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
 
 interface PlanCardProps {
   plan: {
@@ -28,6 +29,7 @@ interface PlanCardProps {
     }>;
     hospitalCount?: number;
     policyCount?: number;
+    claimSettlementRatio?: number;
   };
   premium?: number;
   isComparisonMode?: boolean;
@@ -36,6 +38,43 @@ interface PlanCardProps {
   onViewDetails?: (planId: string) => void;
   onGetQuote?: (planId: string) => void;
   onBuyNow?: (planId: string) => void;
+  isLoading?: boolean;
+}
+
+export function PlanCardSkeleton() {
+  return (
+    <Card className="relative h-full flex flex-col">
+      <CardHeader className="pb-4">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center space-x-2">
+            <Skeleton className="h-8 w-8 rounded" />
+            <div>
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-3 w-16 mt-1" />
+            </div>
+          </div>
+          <Skeleton className="h-5 w-16" />
+        </div>
+        <Skeleton className="h-6 w-3/4 mb-2" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-5/6 mt-1" />
+      </CardHeader>
+      <CardContent className="flex-1">
+        <div className="space-y-4">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-11/12" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+      </CardContent>
+      <CardFooter className="pt-4 space-y-2">
+        <div className="flex space-x-2 w-full">
+          <Skeleton className="h-9 w-full" />
+          <Skeleton className="h-9 w-full" />
+        </div>
+        <Skeleton className="h-9 w-full" />
+      </CardFooter>
+    </Card>
+  );
 }
 
 export function PlanCard({
@@ -47,8 +86,21 @@ export function PlanCard({
   onViewDetails,
   onGetQuote,
   onBuyNow,
+  isLoading = false,
 }: PlanCardProps) {
+  if (isLoading) {
+    return <PlanCardSkeleton />;
+  }
+
   const topBenefits = plan.benefits?.slice(0, 3) || [];
+  const formatAmount = (amount: number) => {
+    if (amount >= 10000000) {
+      return `₹${(amount / 10000000).toFixed(2)} Cr`;
+    } else if (amount >= 100000) {
+      return `₹${(amount / 100000).toFixed(2)} L`;
+    }
+    return `₹${amount.toLocaleString()}`;
+  };
   
   return (
     <Card className="relative h-full flex flex-col hover:shadow-lg transition-shadow duration-200">
@@ -64,12 +116,14 @@ export function PlanCard({
       <CardHeader className="pb-4">
         <div className="flex items-start justify-between mb-2">
           <div className="flex items-center space-x-2">
-            {plan.insurer.logo && (
+            {plan.insurer.logo ? (
               <img 
                 src={plan.insurer.logo} 
                 alt={plan.insurer.name}
                 className="w-8 h-8 object-contain"
               />
+            ) : (
+              <Building2 className="w-8 h-8 text-muted-foreground" />
             )}
             <div>
               <p className="text-sm text-muted-foreground">{plan.insurer.name}</p>
@@ -88,50 +142,45 @@ export function PlanCard({
         </CardDescription>
       </CardHeader>
 
-      <CardContent className="flex-1 space-y-4">
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">Coverage Amount</span>
-            <span className="text-lg font-bold text-primary">
-              ₹{plan.coverageAmount.toLocaleString()}
-            </span>
+      <CardContent className="flex-1">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">Coverage</span>
+            <span className="font-medium">{formatAmount(plan.coverageAmount)}</span>
           </div>
           
-          {premium && (
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Premium</span>
-              <span className="text-lg font-bold text-green-600">
-                ₹{premium.toLocaleString()}/year
-              </span>
+          {premium !== undefined && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Premium</span>
+              <span className="font-medium">{formatAmount(premium)}/year</span>
             </div>
           )}
-        </div>
 
-        {topBenefits.length > 0 && (
-          <div className="space-y-2">
-            <h4 className="text-sm font-medium">Key Benefits</h4>
-            <ul className="space-y-1">
-              {topBenefits.map((benefit) => (
-                <li key={benefit.id} className="flex items-center space-x-2 text-sm">
-                  <Shield className="w-3 h-3 text-green-500 flex-shrink-0" />
-                  <span className="truncate">{benefit.name}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
           {plan.hospitalCount && (
-            <div className="flex items-center space-x-1">
-              <Users className="w-3 h-3" />
-              <span>{plan.hospitalCount.toLocaleString()} hospitals</span>
+            <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+              <Stethoscope className="w-4 h-4" />
+              <span>{plan.hospitalCount.toLocaleString()} Network Hospitals</span>
             </div>
           )}
-          {plan.policyCount && (
-            <div className="flex items-center space-x-1">
-              <Heart className="w-3 h-3" />
-              <span>{plan.policyCount.toLocaleString()} policies</span>
+
+          {plan.claimSettlementRatio && (
+            <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+              <Activity className="w-4 h-4" />
+              <span>{plan.claimSettlementRatio}% Claim Settlement Ratio</span>
+            </div>
+          )}
+
+          {topBenefits.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Key Benefits</p>
+              <ul className="space-y-1">
+                {topBenefits.map(benefit => (
+                  <li key={benefit.id} className="flex items-start space-x-2 text-sm">
+                    <Shield className="w-4 h-4 mt-0.5 text-primary" />
+                    <span>{benefit.name}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
