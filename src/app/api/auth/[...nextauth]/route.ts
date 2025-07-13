@@ -7,6 +7,11 @@ const handler = NextAuth({
   events: {
     ...authOptions.events,
     signIn: async ({ user }) => {
+      // Skip coin rewards in development mode
+      if (process.env.NODE_ENV === 'development') {
+        return;
+      }
+
       if (!user.id) return;
 
       try {
@@ -42,4 +47,4 @@ const handler = NextAuth({
   },
 });
 
-export { handler as GET, handler as POST };
+export { handler as GET, handler as POST, authOptions };
