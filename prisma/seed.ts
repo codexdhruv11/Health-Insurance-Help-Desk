@@ -19,7 +19,7 @@ async function main() {
 
     // Create test users for each role
     const userPassword = await hash('user123', 12)
-    const roles = [UserRole.CUSTOMER, UserRole.AGENT, UserRole.MANAGER]
+    const roles = [UserRole.CUSTOMER, UserRole.AGENT]
     
     for (const role of roles) {
       await prisma.user.upsert({
@@ -244,70 +244,48 @@ async function main() {
         category: RewardCategory.ELECTRONICS,
         stock: 10,
         isAvailable: true,
+        type: 'PHYSICAL',
         imageUrl: '/rewards/smartwatch.jpg',
       },
       {
         name: 'Health Check-up Voucher',
         description: 'Comprehensive health check-up at partner hospitals',
         coinCost: 2000,
-        category: RewardCategory.HEALTH,
+        category: RewardCategory.HEALTH_SERVICE,
         stock: 50,
         isAvailable: true,
+        type: 'DIGITAL',
         imageUrl: '/rewards/health-checkup.jpg',
       },
       {
-        name: 'Gym Membership',
-        description: '1-month gym membership at partner fitness centers',
+        name: 'Wellness Package',
+        description: 'Premium wellness products and supplements',
         coinCost: 3000,
-        category: RewardCategory.HEALTH,
+        category: RewardCategory.WELLNESS_PRODUCT,
         stock: 20,
         isAvailable: true,
-        imageUrl: '/rewards/gym.jpg',
+        type: 'PHYSICAL',
+        imageUrl: '/rewards/wellness-package.jpg',
       },
       {
-        name: 'E-commerce Gift Card',
-        description: '₹1000 gift card for online shopping',
+        name: 'Premium Features',
+        description: 'Unlock premium features in the app',
         coinCost: 1000,
-        category: RewardCategory.VOUCHERS,
+        category: RewardCategory.PREMIUM_FEATURE,
         stock: 100,
         isAvailable: true,
-        imageUrl: '/rewards/gift-card.jpg',
+        type: 'DIGITAL',
+        imageUrl: '/rewards/premium.jpg',
       },
       {
-        name: 'Wireless Earbuds',
-        description: 'Premium wireless earbuds for music and calls',
-        coinCost: 4000,
-        category: RewardCategory.ELECTRONICS,
-        stock: 15,
-        isAvailable: true,
-        imageUrl: '/rewards/earbuds.jpg',
-      },
-      {
-        name: 'Spa Voucher',
-        description: 'Relaxing spa session at luxury wellness centers',
-        coinCost: 2500,
-        category: RewardCategory.LIFESTYLE,
+        name: 'Gift Card',
+        description: 'Gift card for health and wellness products',
+        coinCost: 1500,
+        category: RewardCategory.GIFT_CARD,
         stock: 30,
         isAvailable: true,
-        imageUrl: '/rewards/spa.jpg',
-      },
-      {
-        name: 'Movie Tickets',
-        description: 'Two premium movie tickets at partner theaters',
-        coinCost: 1500,
-        category: RewardCategory.LIFESTYLE,
-        stock: 50,
-        isAvailable: true,
-        imageUrl: '/rewards/movie.jpg',
-      },
-      {
-        name: 'Restaurant Voucher',
-        description: '₹2000 dining voucher at premium restaurants',
-        coinCost: 2000,
-        category: RewardCategory.VOUCHERS,
-        stock: 40,
-        isAvailable: true,
-        imageUrl: '/rewards/restaurant.jpg',
+        type: 'DIGITAL',
+        imageUrl: '/rewards/gift-card.jpg',
       },
     ]
 
@@ -368,7 +346,7 @@ async function main() {
     }
 
     // Create plans for each insurer
-    const planTypes = [PlanType.INDIVIDUAL, PlanType.FAMILY, PlanType.SENIOR_CITIZEN, PlanType.GROUP]
+    const planTypes = [PlanType.INDIVIDUAL, PlanType.FAMILY, PlanType.SENIOR, PlanType.GROUP]
     const insurerEntities = await prisma.insurer.findMany()
 
     for (const insurer of insurerEntities) {
@@ -384,28 +362,30 @@ async function main() {
             insurerId: insurer.id,
             planType,
             coverageAmount: 5000000,
+            premiumAmount: 12000,
+            deductible: 5000,
             features: {
               networkHospitals: 5000,
               cashless: true,
               preExistingCover: 2,
               noClaimBonus: 0.5,
-            },
-            benefitsDetail: {
-              roomRent: { limit: 'Single Private Room', subLimit: null },
-              icu: { limit: '100%', subLimit: null },
-              ambulance: { limit: 2000, subLimit: 'per hospitalization' },
-            },
-            exclusions: ['Cosmetic Surgery', 'Self-inflicted Injuries', 'Dental Treatment'],
-            waitingPeriods: {
-              preExisting: 24,
-              specific: 12,
-              general: 30,
-            },
-            pricingTiers: {
-              '18-35': 1.0,
-              '36-50': 1.2,
-              '51-65': 1.5,
-              '66+': 2.0,
+              benefits: {
+                roomRent: { limit: 'Single Private Room', subLimit: null },
+                icu: { limit: '100%', subLimit: null },
+                ambulance: { limit: 2000, subLimit: 'per hospitalization' },
+              },
+              exclusions: ['Cosmetic Surgery', 'Self-inflicted Injuries', 'Dental Treatment'],
+              waitingPeriods: {
+                preExisting: 24,
+                specific: 12,
+                general: 30,
+              },
+              pricingTiers: {
+                '18-35': 1.0,
+                '36-50': 1.2,
+                '51-65': 1.5,
+                '66+': 2.0,
+              },
             },
           },
         })
