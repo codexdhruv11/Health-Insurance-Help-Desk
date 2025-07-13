@@ -10,6 +10,99 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Product Plans
+model ProductPlan {
+  id              String    @id @default(uuid())
+  name            String
+  description     String
+  planType        PlanType
+  coverageAmount  Decimal
+  premiumAmount   Decimal
+  deductible      Decimal
+  features        Json
+  status          String    @default("ACTIVE") // ACTIVE, DRAFT, ARCHIVED
+  insurerId       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  insurer         Insurer   @relation(fields: [insurerId], references: [id], onDelete: Restrict)
+  policies        Policy[]
+  benefits        PlanBenefit[]
+  networkHospitals NetworkHospital[]
+
+  @@index([planType])
+  @@index([status])
+  @@index([insurerId])
+}
+
+model PlanBenefit {
+  id              String    @id @default(uuid())
+  planId          String
+  name            String
+  description     String
+  coverageAmount  Decimal
+  waitingPeriod   Int?      // in days
+  conditions      Json?
+  status          String    @default("ACTIVE") // ACTIVE, INACTIVE
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  plan            ProductPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([status])
+}
+
+model NetworkHospital {
+  id              String    @id @default(uuid())
+  planId          String
+  hospitalId      String
+  cashless        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  plan            ProductPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  hospital        Hospital    @relation(fields: [hospitalId], references: [id], onDelete: Restrict)
+
+  @@index([planId])
+  @@index([hospitalId])
+}
+
+model Hospital {
+  id              String    @id @default(uuid())
+  name            String
+  address         Json
+  specialties     String[]
+  rating          Float?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  networkPlans    NetworkHospital[]
+
+  @@index([name])
+  @@index([specialties])
+}
+
+model Insurer {
+  id              String    @id @default(uuid())
+  name            String
+  logo            String?
+  rating          Float?
+  establishedYear Int?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  plans           ProductPlan[]
+
+  @@index([name])
+  @@index([rating])
+}
+
 // User and Authentication
 model User {
   id            String    @id @default(uuid())
@@ -28,6 +121,9 @@ model User {
   tickets       SupportTicket[] @relation("AssignedAgent")
   documents     Document[]
   coinWallet    CoinWallet?
+
+  @@index([email])
+  @@index([role])
 }
 
 model Session {
@@ -38,7 +134,10 @@ model Session {
   accessToken  String   @unique
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id])
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expires])
+  @@index([userId])
 }
 
 // Customer Information
@@ -54,12 +153,16 @@ model Customer {
   createdAt     DateTime  @default(now())
   
   // Relations
-  user          User      @relation(fields: [userId], references: [id])
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   policies      Policy[]
   tickets       SupportTicket[]
   quotes        Quote[]
   payments      Payment[]
   comparisons   PlanComparison[]
+
+  @@index([firstName, lastName])
+  @@index([dateOfBirth])
+  @@index([phone])
 }
 
 // Support Agent Information
@@ -73,14 +176,17 @@ model SupportAgent {
   createdAt     DateTime  @default(now())
   
   // Relations
-  user          User      @relation(fields: [userId], references: [id])
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([firstName, lastName])
+  @@index([department])
 }
 
 // Insurance Policies
 model Policy {
   id              String    @id @default(uuid())
   customerId      String
-  planId          String    // New field to reference ProductPlan
+  planId          String    // Reference to ProductPlan
   policyNumber    String    @unique
   status          PolicyStatus @default(ACTIVE)
   effectiveDate   DateTime
@@ -91,11 +197,18 @@ model Policy {
   createdAt       DateTime  @default(now())
   
   // Relations
-  customer        Customer  @relation(fields: [customerId], references: [id])
-  plan            ProductPlan @relation(fields: [planId], references: [id]) // New relation
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  plan            ProductPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
   claims          Claim[]
   payment         Payment?
   familyMembers   FamilyMember[]
+
+  @@index([customerId])
+  @@index([planId])
+  @@index([status])
+  @@index([effectiveDate])
+  @@index([expirationDate])
+  @@index([policyNumber])
 }
 
 // Family Members
@@ -109,9 +222,11 @@ model FamilyMember {
   createdAt       DateTime  @default(now())
   
   // Relations
-  policy          Policy    @relation(fields: [policyId], references: [id])
+  policy          Policy    @relation(fields: [policyId], references: [id], onDelete: Cascade)
 
   @@index([policyId])
+  @@index([firstName, lastName])
+  @@index([dateOfBirth])
 }
 
 // Insurance Claims
@@ -129,8 +244,14 @@ model Claim {
   createdAt       DateTime  @default(now())
   
   // Relations
-  policy          Policy    @relation(fields: [policyId], references: [id])
+  policy          Policy    @relation(fields: [policyId], references: [id], onDelete: Restrict)
   documents       Document[]
+
+  @@index([policyId])
+  @@index([status])
+  @@index([claimNumber])
+  @@index([incidentDate])
+  @@index([submittedDate])
 }
 
 // Support Tickets
@@ -147,10 +268,17 @@ model SupportTicket {
   resolvedAt      DateTime?
   
   // Relations
-  customer        Customer  @relation(fields: [customerId], references: [id])
-  assignedAgent   User?     @relation("AssignedAgent", fields: [assignedAgentId], references: [id])
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  assignedAgent   User?     @relation("AssignedAgent", fields: [assignedAgentId], references: [id], onDelete: SetNull)
   messages        Message[]
   documents       Document[]
+
+  @@index([customerId])
+  @@index([assignedAgentId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@index([resolvedAt])
 }
 
 // Support Messages
@@ -162,7 +290,11 @@ model Message {
   createdAt       DateTime  @default(now())
   
   // Relations
-  ticket          SupportTicket @relation(fields: [ticketId], references: [id])
+  ticket          SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([senderId])
+  @@index([createdAt])
 }
 
 // Document Storage
@@ -182,376 +314,112 @@ model Document {
   updatedAt       DateTime       @updatedAt
   
   // Relations
-  claim           Claim?         @relation(fields: [entityId], references: [id], map: "Document_claim_fkey")
-  ticket          SupportTicket? @relation(fields: [entityId], references: [id], map: "Document_ticket_fkey")
-  uploadedBy      User           @relation(fields: [uploadedById], references: [id])
+  claim           Claim?         @relation(fields: [entityId], references: [id], map: "Document_claim_fkey", onDelete: Cascade)
+  ticket          SupportTicket? @relation(fields: [entityId], references: [id], map: "Document_ticket_fkey", onDelete: Cascade)
+  uploadedBy      User           @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
 
   @@index([hash])
   @@index([status])
   @@index([entityType, entityId])
+  @@index([uploadedById])
+  @@index([createdAt])
+  @@index([fileName])
 }
 
-// Enums
-enum UserRole {
-  CUSTOMER
-  AGENT
-  ADMIN
-  MANAGER
-}
-
-enum PlanType {
-  INDIVIDUAL
-  FAMILY
-  GROUP
-  MEDICARE
-  SENIOR_CITIZEN // New plan type
-}
-
-enum PolicyStatus {
-  ACTIVE
-  INACTIVE
-  PENDING
-  CANCELLED
-}
-
-enum ClaimStatus {
-  SUBMITTED
-  UNDER_REVIEW
-  APPROVED
-  DENIED
-  PENDING_INFO
-}
-
-enum TicketPriority {
-  LOW
-  MEDIUM
-  HIGH
-  URGENT
-}
-
-enum TicketStatus {
-  OPEN
-  IN_PROGRESS
-  RESOLVED
-  CLOSED
-}
-
-enum SupportChannel {
-  EMAIL
-  CHAT
-  PHONE
-  PORTAL
-}
-
-enum EntityType {
-  CLAIM
-  POLICY
-  TICKET
-  QUOTE          // New entity type
-  PLAN           // New entity type
-  HOSPITAL       // New entity type
-} 
-
-// Insurance Company Information
-model Insurer {
-  id              String    @id @default(uuid())
-  name            String    @unique
-  description     String
-  logo            String    // URL to logo image
-  rating          Float     // Rating out of 5
-  establishedYear Int
-  regulatoryInfo  Json     // Regulatory details and licenses
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  plans           ProductPlan[]
-}
-
-// Insurance Product Plans
-model ProductPlan {
-  id              String    @id @default(uuid())
-  insurerId       String
-  name            String
-  description     String
-  planType        PlanType
-  coverageAmount  Decimal
-  features        Json      // Key plan features
-  benefitsDetail  Json      // Detailed benefits structure
-  exclusions      Json     // Plan exclusions
-  waitingPeriods  Json     // Waiting periods for different conditions
-  pricingTiers    Json     // Age-based pricing matrix
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  insurer         Insurer   @relation(fields: [insurerId], references: [id])
-  policies        Policy[]
-  benefits        PlanBenefit[]
-  networkHospitals NetworkHospital[]
-  quotes          QuoteItem[]
-}
-
-// Plan Benefits
-model PlanBenefit {
-  id              String    @id @default(uuid())
-  planId          String
-  name            String
-  description     String
-  coverageAmount  Decimal
-  conditions      String?
-  waitingPeriod   Int      // in days
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  plan            ProductPlan @relation(fields: [planId], references: [id])
-}
-
-// Quote Requests
-model Quote {
-  id              String    @id @default(uuid())
-  customerId      String?
-  age             Int
-  city            String
-  coverageAmount  Decimal
-  familySize      Int      @default(1)
-  medicalHistory  Json?
-  status          QuoteStatus @default(ACTIVE)
-  expiresAt       DateTime
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  customer        Customer? @relation(fields: [customerId], references: [id])
-  quoteItems      QuoteItem[]
-}
-
-// Quote Items (Plans with calculated premiums)
-model QuoteItem {
-  id              String    @id @default(uuid())
-  quoteId         String
-  planId          String
-  premium         Decimal
-  discounts       Json?
-  finalPremium    Decimal
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  quote           Quote      @relation(fields: [quoteId], references: [id])
-  plan            ProductPlan @relation(fields: [planId], references: [id])
-}
-
-// Hospital Network
-model Hospital {
-  id              String    @id @default(uuid())
-  name            String
-  address         Json
-  location        Json      // Latitude and longitude
-  specialties     String[]
-  facilities      String[]
-  emergencyServices Boolean @default(false)
-  rating          Float?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  networkPlans    NetworkHospital[]
-}
-
-// Network Hospital Relationships
-model NetworkHospital {
-  id              String    @id @default(uuid())
-  hospitalId      String
-  planId          String
-  cashless        Boolean   @default(true)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  hospital        Hospital   @relation(fields: [hospitalId], references: [id])
-  plan            ProductPlan @relation(fields: [planId], references: [id])
-
-  @@unique([hospitalId, planId])
-}
-
-// Payment Transactions
-model Payment {
-  id              String    @id @default(uuid())
-  policyId        String    @unique
-  customerId      String
-  amount          Decimal
-  status          PaymentStatus @default(PENDING)
-  paymentMethod   String
-  stripeSessionId String?
-  stripePaymentId String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  // Relations
-  policy          Policy    @relation(fields: [policyId], references: [id])
-  customer        Customer  @relation(fields: [customerId], references: [id])
-}
-
-// Plan Comparisons
-model PlanComparison {
-  id              String    @id @default(uuid())
-  customerId      String?
-  planIds         String[]  // Array of plan IDs being compared
-  createdAt       DateTime  @default(now())
-  expiresAt       DateTime
-
-  // Relations
-  customer        Customer? @relation(fields: [customerId], references: [id])
-}
-
-// Add new enums
-enum QuoteStatus {
-  ACTIVE
-  EXPIRED
-  CONVERTED
-}
-
-enum PaymentStatus {
-  PENDING
-  COMPLETED
-  FAILED
-  REFUNDED
-}
-
-enum BenefitType {
-  ROOM_RENT
-  HOSPITALIZATION
-  CRITICAL_ILLNESS
-  MATERNITY
-  WELLNESS
-  DENTAL
-  OPTICAL
-  OTHER
-}
-
-enum HospitalType {
-  GOVERNMENT
-  PRIVATE
-  TRUST
-  CORPORATE
-}
-
-enum DocumentStatus {
-  PENDING   // Awaiting virus scan
-  READY     // Clean and ready for use
-  INFECTED  // Contains malware
-  DELETED   // Soft deleted
-}
-
-enum CoinTransactionType {
-  EARN
-  SPEND
-  REFUND
-}
-
-enum CoinEarnReason {
-  SIGN_UP
-  DAILY_LOGIN
-  POLICY_PURCHASE
-  REFERRAL
-  HEALTH_QUIZ
-  DOCUMENT_UPLOAD
-  ADMIN_CREDIT
-}
-
-enum RewardCategory {
-  ELECTRONICS
-  VOUCHERS
-  HEALTH
-  LIFESTYLE
-}
-
-enum RedemptionStatus {
-  PENDING
-  PROCESSING
-  FULFILLED
-  CANCELLED
-}
-
+// Coin Wallet and Transactions
 model CoinWallet {
-  id          String   @id @default(cuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id])
-  balance     Int      @default(0)
-  totalEarned Int      @default(0)
-  totalSpent  Int      @default(0)
-  lastUpdated DateTime @updatedAt
-
-  transactions     CoinTransaction[]
-  redemptions      RewardRedemption[]
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  balance       Int       @default(0)
+  totalEarned   Int       @default(0)
+  totalSpent    Int       @default(0)
+  lastUpdated   DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // Relations
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  CoinTransaction[]
+  redemptions   RewardRedemption[]
 
   @@index([userId])
   @@index([balance])
 }
 
 model CoinTransaction {
-  id          String             @id @default(cuid())
-  walletId    String
-  wallet      CoinWallet        @relation(fields: [walletId], references: [id])
-  type        CoinTransactionType
-  amount      Int
-  reason      CoinEarnReason?
-  metadata    Json?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  id            String    @id @default(uuid())
+  walletId      String
+  type          String    // EARN, SPEND, REFUND
+  amount        Int
+  reason        String?   // SIGN_UP, DAILY_LOGIN, etc.
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  
+  // Relations
+  wallet        CoinWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@index([walletId])
   @@index([type])
+  @@index([reason])
   @@index([createdAt])
 }
 
 model CoinEarnRule {
-  id             String         @id @default(cuid())
-  taskType       CoinEarnReason
-  coinAmount     Int
-  cooldownPeriod Int           // in minutes
-  maxPerDay      Int
-  isActive       Boolean       @default(true)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id              String    @id @default(uuid())
+  taskType        String    @unique // SIGN_UP, DAILY_LOGIN, etc.
+  coinAmount      Int
+  cooldownPeriod  Int       // in minutes
+  maxPerDay       Int       @default(1)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  @@unique([taskType, isActive])
   @@index([taskType])
   @@index([isActive])
 }
 
+// Rewards System
 model RewardItem {
-  id           String            @id @default(cuid())
-  name         String
-  description  String
-  coinCost     Int
-  category     RewardCategory
-  stock        Int              @default(0)
-  isAvailable  Boolean          @default(true)
-  imageUrl     String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  redemptions  RewardRedemption[]
+  id              String    @id @default(uuid())
+  name            String
+  description     String
+  coinCost        Int
+  category        String    // GIFT_CARD, PREMIUM_FEATURE, etc.
+  stock           Int       @default(0)
+  isAvailable     Boolean   @default(true)
+  isActive        Boolean   @default(true)
+  maxPerDay       Int       @default(1)
+  redeemedCount   Int       @default(0)
+  type            String    // DIGITAL, PHYSICAL
+  imageUrl        String?
+  metadata        Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  redemptions     RewardRedemption[]
 
-  @@unique([name, category])
   @@index([category])
   @@index([isAvailable])
-  @@index([coinCost])
+  @@index([isActive])
+  @@index([type])
+  @@index([redeemedCount])
 }
 
 model RewardRedemption {
-  id            String           @id @default(cuid())
-  walletId      String
-  wallet        CoinWallet      @relation(fields: [walletId], references: [id])
-  rewardItemId  String
-  rewardItem    RewardItem      @relation(fields: [rewardItemId], references: [id])
-  coinsCost     Int
-  status        RedemptionStatus
+  id              String    @id @default(uuid())
+  walletId        String
+  rewardItemId    String
+  coinsCost       Int
+  quantity        Int       @default(1)
+  status          String    @default("PENDING") // PENDING, FULFILLED, CANCELLED
   fulfillmentData Json?
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // Relations
+  wallet          CoinWallet  @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  rewardItem      RewardItem  @relation(fields: [rewardItemId], references: [id], onDelete: Restrict)
 
   @@index([walletId])
   @@index([rewardItemId])
