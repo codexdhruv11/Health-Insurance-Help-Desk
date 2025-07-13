@@ -15,14 +15,14 @@ export const handlers = [
 
   // Quote handlers
   http.post('/api/quote', async ({ request }) => {
-    const data = await request.json()
+    const data = await request.json() as { coverageAmount?: number } | null
     return HttpResponse.json({
       basePremium: 10000,
       riskFactor: 1.2,
       cityMultiplier: 1.1,
       familyDiscount: 0.1,
       finalPremium: 11880,
-      coverageAmount: data.coverageAmount,
+      coverageAmount: data?.coverageAmount || 500000,
       recommendedPlans: [
         {
           planId: 'plan-1',
@@ -138,10 +138,10 @@ export const handlers = [
 
   // Compare handlers
   http.post('/api/compare', async ({ request }) => {
-    const data = await request.json()
+    const data = await request.json() as { planIds?: string[] } | null
     return HttpResponse.json({
       id: 'comparison-1',
-      plans: data.planIds.map((id: string) => ({
+      plans: (data?.planIds || []).map((id: string) => ({
         id,
         name: 'Gold Health Individual',
         insurerName: 'HealthGuard Insurance',
